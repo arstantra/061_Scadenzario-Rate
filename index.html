@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scadenzario Rate</title>
+<meta name="theme-color" content="#f2f2f0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Rate">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%234f46e5'/%3E%3Crect x='14' y='36' width='8' height='14' rx='2' fill='%23fff'/%3E%3Crect x='28' y='26' width='8' height='24' rx='2' fill='%23fff'/%3E%3Crect x='42' y='16' width='8' height='34' rx='2' fill='%23fff' opacity='.55'/%3E%3C/svg%3E">
+
+<style>
+  :root{
+    --bg:#f2f2f0; --card:#fff; --ink:#16161a; --ink2:#5b5b63; --muted:#8e8e96;
+    --line:#e6e6e3; --accent:#4f46e5; --accent-soft:#eef0fe;
+    --radius:14px; --shadow:0 1px 2px rgba(16,16,20,.05), 0 4px 14px rgba(16,16,20,.05);
+    --gutter:16px;
+    /* palette enti — 8 tinte validate per separazione e daltonismo */
+    --e0:#2a78d6; --e1:#eb6834; --e2:#1baf7a; --e3:#eda100;
+    --e4:#e87ba4; --e5:#008300; --e6:#4a3aa7; --e7:#e34948;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; background:var(--bg); color:var(--ink);
+    font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  body{padding:0 var(--gutter) 96px; max-width:520px; margin:0 auto}
+  button{font:inherit; color:inherit; border:0; background:none; cursor:pointer}
+  input,select{font:inherit; color:inherit}
+  h1{font-size:19px; font-weight:650; letter-spacing:-.01em; margin:0}
+  .card{background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:16px; margin-bottom:12px}
+  .num{font-variant-numeric:tabular-nums}
+  .muted{color:var(--muted)}
+
+  /* ---------- header ---------- */
+  header{display:flex; align-items:center; justify-content:space-between; padding:22px 2px 14px}
+  .ghost{font-size:13px; color:var(--muted); padding:6px 8px; border-radius:8px}
+  .ghost:hover{background:#0000000a; color:var(--ink2)}
+
+  /* ---------- 1. tre numeri ---------- */
+  .stats{display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line);
+    border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); margin-bottom:12px}
+  .stat{background:var(--card); padding:14px 16px}
+  .stat.wide{grid-column:1/-1}
+  .stat .k{font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600}
+  .stat .v{font-size:26px; font-weight:640; letter-spacing:-.02em; margin-top:3px; font-variant-numeric:tabular-nums}
+  .stat.wide .v{font-size:21px}
+  .stat .s{font-size:12.5px; color:var(--ink2); margin-top:2px; font-variant-numeric:tabular-nums}
+
+  /* ---------- 2+3. griglia condivisa a 12 colonne ---------- */
+  .chart{padding:16px 14px 12px}
+  .grid12{display:grid; grid-template-columns:repeat(12,1fr); column-gap:2px}
+  .bandrow{position:relative}
+  .gantt{position:relative; z-index:1; display:flex; flex-direction:column; gap:6px; margin-bottom:10px}
+  .grow{height:22px; align-items:stretch; position:relative}
+  .bar{border-radius:4px; min-width:6px; display:flex; align-items:center; padding:0 6px; overflow:hidden;
+       color:#fff; font-size:10.5px; font-weight:600; white-space:nowrap; text-shadow:0 1px 1px rgba(0,0,0,.18)}
+  .bar.cutR{border-top-right-radius:0; border-bottom-right-radius:0}
+  .bar.cutL{border-top-left-radius:0; border-bottom-left-radius:0}
+  .bar .chev{margin-left:auto; opacity:.85; font-weight:700; padding-left:4px}
+
+  .axis{position:relative; z-index:1; margin:2px 0 8px}
+  .axis span{font-size:10px; color:var(--muted); text-align:center; font-weight:600; letter-spacing:.02em}
+  .axis span.y{color:var(--ink2)}
+  .axis span.sel{color:var(--accent)}
+
+  .hist{position:relative; z-index:1; height:112px; align-items:end}
+  .col{height:100%; display:flex; flex-direction:column-reverse; justify-content:flex-start; gap:2px;
+       border-radius:6px; padding-bottom:0; cursor:pointer}
+  .base{height:2px; background:var(--line); border-radius:1px; column-gap:2px}
+  .base i{background:var(--accent); border-radius:1px}
+  .seg:first-child{border-radius:0 0 3px 3px}
+  .seg:last-child{border-radius:3px 3px 0 0}
+  .seg{min-height:3px}
+
+  .readout{margin-top:10px; font-size:12.5px; color:var(--ink2); min-height:34px}
+  .readout .head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px}
+  .readout .head b{font-size:14px; color:var(--ink); font-variant-numeric:tabular-nums}
+  .chips{display:flex; flex-wrap:wrap; gap:4px 10px}
+  .chip{display:flex; align-items:center; gap:5px; font-size:12px; font-variant-numeric:tabular-nums}
+  .dot{width:8px; height:8px; border-radius:3px; flex:none}
+
+  /* ---------- 4. lista ---------- */
+  .listhead{display:flex; justify-content:space-between; align-items:baseline; padding:8px 4px 8px}
+  .listhead h2{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0; font-weight:650}
+  .item{width:100%; text-align:left; background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow);
+        padding:13px 15px; margin-bottom:8px; display:block}
+  .item:active{transform:scale(.995)}
+  .item .top{display:flex; align-items:center; gap:8px}
+  .item .name{font-weight:600; letter-spacing:-.005em; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .item .rata{font-variant-numeric:tabular-nums; font-weight:600}
+  .item .sub{display:flex; justify-content:space-between; gap:8px; margin-top:3px; font-size:12.5px; color:var(--muted)}
+  .item .sub span{font-variant-numeric:tabular-nums}
+  .prog{height:3px; background:var(--line); border-radius:2px; margin-top:9px; overflow:hidden}
+  .prog i{display:block; height:100%; border-radius:2px}
+
+  .empty{text-align:center; color:var(--muted); padding:34px 20px; font-size:14px}
+
+  /* ---------- fab ---------- */
+  .fab{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(20px + env(safe-area-inset-bottom));
+       background:var(--accent); color:#fff; font-weight:600; font-size:15px; padding:13px 22px; border-radius:999px;
+       box-shadow:0 4px 16px rgba(79,70,229,.34); z-index:40}
+
+  /* ---------- sheet ---------- */
+  .scrim{position:fixed; inset:0; background:rgba(16,16,20,.34); z-index:50; opacity:0; pointer-events:none; transition:opacity .18s}
+  .scrim.on{opacity:1; pointer-events:auto}
+  .sheet{position:fixed; left:0; right:0; bottom:0; z-index:51; background:var(--bg);
+         border-radius:20px 20px 0 0; max-width:520px; margin:0 auto; max-height:92vh; overflow:auto;
+         transform:translateY(102%); transition:transform .22s cubic-bezier(.32,.72,0,1);
+         padding:0 var(--gutter) calc(24px + env(safe-area-inset-bottom))}
+  .sheet.on{transform:translateY(0)}
+  .sheet .bar-h{position:sticky; top:0; background:var(--bg); padding:14px 2px 12px; display:flex;
+                align-items:center; justify-content:space-between; gap:10px; z-index:2}
+  .sheet .bar-h h2{font-size:17px; font-weight:650; margin:0; letter-spacing:-.01em; flex:1; min-width:0;
+                   overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .x{font-size:15px; color:var(--muted); padding:6px 10px; border-radius:8px}
+  .x:hover{background:#0000000a}
+
+  /* form */
+  .field{margin-bottom:12px}
+  .field label{display:block; font-size:12px; font-weight:600; color:var(--ink2); margin-bottom:5px}
+  .field input,.field select{width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:10px;
+    background:var(--card); outline:none}
+  .field input:focus,.field select:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
+  .row2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .primary{width:100%; background:var(--accent); color:#fff; font-weight:600; padding:13px; border-radius:12px; margin-top:4px}
+  .danger{width:100%; color:#c0392f; font-weight:600; padding:12px; border-radius:12px; margin-top:8px; background:var(--card)}
+  .hint{font-size:12px; color:var(--muted); margin:-4px 0 12px}
+  .err{font-size:12.5px; color:#c0392f; margin-bottom:10px; display:none}
+
+  /* dettaglio rate */
+  .rlist{background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden}
+  .r{display:flex; align-items:center; gap:10px; padding:10px 14px; border-top:1px solid var(--line)}
+  .r:first-child{border-top:0}
+  .r .n{width:26px; font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; flex:none}
+  .r .d{flex:1; font-size:13.5px; font-variant-numeric:tabular-nums}
+  .r .a{font-size:13.5px; font-variant-numeric:tabular-nums; color:var(--ink2)}
+  .r.paid .d,.r.paid .a{color:var(--muted)}
+  .r.skip .d,.r.skip .a{color:var(--muted); text-decoration:line-through}
+  .tags{display:flex; gap:5px; flex:none}
+  .tag{font-size:11px; font-weight:600; padding:4px 8px; border-radius:7px; background:#f0f0ee; color:var(--muted)}
+  .tag.on{background:var(--accent); color:#fff}
+  .stateline{display:flex; align-items:center; gap:6px; margin:14px 2px 8px; font-size:12px; color:var(--muted)}
+  .kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line);
+        border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); margin-bottom:12px}
+  .kpis div{background:var(--card); padding:11px 12px}
+  .kpis .k{font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:600}
+  .kpis .v{font-size:16px; font-weight:640; font-variant-numeric:tabular-nums; margin-top:2px}
+  footer{text-align:center; padding:18px 0 4px; font-size:12px; color:var(--muted)}
+  footer button{font-size:12px; color:var(--muted); text-decoration:underline; text-underline-offset:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Scadenzario Rate</h1>
+  <button class="ghost" id="btnMenu">gestione</button>
+</header>
+
+<div class="stats" id="stats"></div>
+
+<div class="card chart" id="chart"></div>
+
+<div class="listhead"><h2>Finanziamenti</h2><span class="muted num" id="count"></span></div>
+<div id="list"></div>
+
+<footer id="foot"></footer>
+
+<button class="fab" id="btnAdd">+ Aggiungi</button>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Stato e persistenza
+   ============================================================ */
+const KEY = "rate_stato";
+const PALETTE = ["--e0","--e1","--e2","--e3","--e4","--e5","--e6","--e7"];
+const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+const CAD  = { mensile:1, bimestrale:2, trimestrale:3, settimanale:0 };
+
+let stato = { v:1, items:[], colori:{} };
+let memoriaOk = true;
+
+function carica(){
+  try{
+    const raw = localStorage.getItem(KEY);
+    if(raw){ stato = JSON.parse(raw); }
+    else { stato = esempio(); salva(); }
+  }catch(e){ memoriaOk = false; stato = esempio(); }
+}
+function salva(){
+  try{ localStorage.setItem(KEY, JSON.stringify(stato)); }
+  catch(e){ memoriaOk = false; }
+}
+
+/* colore stabile per ente: primo slot libero, poi sempre quello */
+function coloreEnte(ente){
+  const k = (ente||"—").trim().toLowerCase();
+  if(!(k in stato.colori)){
+    const usati = new Set(Object.values(stato.colori));
+    let slot = PALETTE.findIndex((_,i)=>!usati.has(i));
+    if(slot === -1) slot = Object.keys(stato.colori).length % PALETTE.length;
+    stato.colori[k] = slot;
+  }
+  return `var(${PALETTE[stato.colori[k]]})`;
+}
+
+/* ============================================================
+   Date e calcolo delle rate
+   ============================================================ */
+const oggi = (()=>{ const d = new Date(); d.setHours(0,0,0,0); return d; })();
+
+function addMesi(y, mIdx, day, k){
+  const t = new Date(y, mIdx + k, 1);
+  const ultimo = new Date(t.getFullYear(), t.getMonth()+1, 0).getDate();
+  t.setDate(Math.min(day, ultimo));
+  t.setHours(0,0,0,0);
+  return t;
+}
+
+/* Elenco completo delle rate di un finanziamento, con data e stato.
+   'rinviata' sposta la rata di un periodo; 'saltata' la esclude dai totali. */
+function rate(f){
+  const [y,m,d] = f.prima.split("-").map(Number);
+  const passo = CAD[f.cadenza];
+  const out = [];
+  for(let i=0;i<f.n;i++){
+    const ecc = f.ecc ? f.ecc[i] : null;
+    let dt;
+    if(passo === 0){                                    // settimanale
+      dt = new Date(y, m-1, d);
+      dt.setDate(dt.getDate() + 7*(i + (ecc==="rinviata"?1:0)));
+      dt.setHours(0,0,0,0);
+    } else {
+      dt = addMesi(y, m-1, d, passo*i + (ecc==="rinviata" ? passo : 0));
+    }
+    const st = ecc === "saltata" ? "saltata" : (dt < oggi ? "pagata" : "attesa");
+    out.push({ i, data:dt, stato:st, rinviata: ecc==="rinviata" });
+  }
+  return out;
+}
+
+function riepilogo(f){
+  const r = rate(f);
+  const vive    = r.filter(x=>x.stato!=="saltata");
+  const pagate  = r.filter(x=>x.stato==="pagata");
+  const attesa  = r.filter(x=>x.stato==="attesa");
+  const ultima  = vive.length ? vive[vive.length-1].data : null;
+  return {
+    rate:r, vive, pagate, attesa, ultima,
+    totale: f.rata*vive.length,
+    versato:f.rata*pagate.length,
+    residuo:f.rata*attesa.length
+  };
+}
+
+/* ============================================================
+   Formattazione
+   ============================================================ */
+const euro  = n => "€ " + n.toLocaleString("it-IT",{minimumFractionDigits:2, maximumFractionDigits:2});
+const euroC = n => "€ " + Math.round(n).toLocaleString("it-IT");
+const dataIt = d => String(d.getDate()).padStart(2,"0") + "/" + String(d.getMonth()+1).padStart(2,"0") + "/" + d.getFullYear();
+const meseAnno = d => MESI[d.getMonth()] + " " + d.getFullYear();
+
+/* ============================================================
+   Griglia condivisa: 12 mesi da quello corrente
+   ============================================================ */
+function finestra(){
+  const out = [];
+  for(let k=0;k<12;k++){
+    const d = new Date(oggi.getFullYear(), oggi.getMonth()+k, 1);
+    out.push({ y:d.getFullYear(), m:d.getMonth(), idx:d.getFullYear()*12 + d.getMonth() });
+  }
+  return out;
+}
+const idxDi = d => d.getFullYear()*12 + d.getMonth();
+
+let meseSel = 0;   // colonna selezionata nell'istogramma
+
+/* ============================================================
+   Render
+   ============================================================ */
+function render(){
+  const F = stato.items.map(f => ({ f, r:riepilogo(f) }));
+  renderStats(F);
+  renderChart(F);
+  renderList(F);
+  document.getElementById("count").textContent = F.length ? F.length : "";
+  document.getElementById("foot").innerHTML = memoriaOk
+    ? `I dati restano su questo dispositivo. <button id="bk">backup</button>`
+    : `<b>Memoria non disponibile</b> — i dati non verranno salvati.`;
+  const bk = document.getElementById("bk");
+  if(bk) bk.onclick = apriBackup;
+}
+
+/* --- 1. tre numeri --- */
+function renderStats(F){
+  const mese = idxDi(oggi);
+  let meseTot = 0, meseResto = 0, residuo = 0, totale = 0, versato = 0;
+  let fine = null, fineNome = "";
+
+  F.forEach(({f,r})=>{
+    residuo += r.residuo; totale += r.totale; versato += r.versato;
+    r.vive.forEach(x=>{
+      if(idxDi(x.data) === mese){ meseTot += f.rata; if(x.stato==="attesa") meseResto += f.rata; }
+    });
+    const ultimaAttesa = r.attesa.length ? r.attesa[r.attesa.length-1].data : null;
+    if(ultimaAttesa && (!fine || ultimaAttesa > fine)){ fine = ultimaAttesa; fineNome = f.cosa; }
+  });
+
+  document.getElementById("stats").innerHTML = `
+    <div class="stat">
+      <div class="k">${MESI[oggi.getMonth()]} ${oggi.getFullYear()}</div>
+      <div class="v">${euroC(meseTot)}</div>
+      <div class="s">${ meseTot === 0 ? "nessuna scadenza"
+          : meseResto === 0 ? "tutto versato"
+          : meseResto === meseTot ? "ancora da versare"
+          : "ancora " + euroC(meseResto) }</div>
+    </div>
+    <div class="stat">
+      <div class="k">Residuo</div>
+      <div class="v">${euroC(residuo)}</div>
+      <div class="s">${ totale ? "su " + euroC(totale) + " totali" : "—" }</div>
+    </div>
+    <div class="stat wide">
+      <div class="k">Libero il</div>
+      <div class="v">${ fine ? meseAnno(fine) : "adesso" }</div>
+      <div class="s">${ fine ? "ultima rata: " + fineNome + " · " + dataIt(fine) : "nessuna rata in sospeso" }</div>
+    </div>`;
+}
+
+/* --- 2 + 3. Gantt e istogramma sulla stessa griglia --- */
+function renderChart(F){
+  const box = document.getElementById("chart");
+  if(!F.length){ box.innerHTML = `<div class="empty">Aggiungi un finanziamento<br>per vedere la timeline.</div>`; return; }
+
+  const win = finestra();
+  const primo = win[0].idx, ultimo = win[11].idx;
+
+  /* --- barre Gantt, ordinate per data di fine --- */
+  const barre = F.map(({f,r})=>{
+    const vive = r.vive;
+    if(!vive.length) return null;
+    const a = idxDi(vive[0].data), b = idxDi(vive[vive.length-1].data);
+    if(b < primo || a > ultimo) return null;                 // fuori finestra
+    const start = Math.max(a, primo) - primo;
+    const end   = Math.min(b, ultimo) - primo;
+    return { f, r, start, end, tagliaL:a < primo, tagliaR:b > ultimo, fine:b };
+  }).filter(Boolean).sort((x,y)=> x.fine - y.fine || x.start - y.start);
+
+  const gantt = barre.map(b=>{
+    const largo = b.end - b.start + 1;
+    const cls = "bar" + (b.tagliaR?" cutR":"") + (b.tagliaL?" cutL":"");
+    const testo = largo >= 3 ? b.f.cosa : "";
+    return `<div class="grid12 grow">
+      <div class="${cls}" style="grid-column:${b.start+1}/${b.end+2}; background:${coloreEnte(b.f.ente)}"
+           title="${esc(b.f.cosa)} · ${esc(b.f.ente)} — fino al ${dataIt(b.r.vive[b.r.vive.length-1].data)}">
+        <span style="overflow:hidden;text-overflow:ellipsis">${esc(testo)}</span>
+        ${ b.tagliaR ? '<span class="chev">›</span>' : "" }
+      </div></div>`;
+  }).join("");
+
+  /* --- totali mensili per ente --- */
+  const perMese = win.map(()=>({ tot:0, voci:[] }));
+  F.forEach(({f,r})=>{
+    r.vive.forEach(x=>{
+      const c = idxDi(x.data) - primo;
+      if(c < 0 || c > 11) return;
+      perMese[c].tot += f.rata;
+      const v = perMese[c].voci.find(v=>v.ente === f.ente);
+      if(v) v.val += f.rata; else perMese[c].voci.push({ ente:f.ente, val:f.rata });
+    });
+  });
+  const max = Math.max(1, ...perMese.map(m=>m.tot));
+
+  const hist = perMese.map((m,c)=>{
+    const h = m.tot / max * 100;
+    const segs = m.voci.map(v=>
+      `<div class="seg" style="height:${ (v.val/m.tot*100) || 0 }%; background:${coloreEnte(v.ente)}"></div>`).join("");
+    return `<div class="col" data-c="${c}">
+        <div style="height:${h}%; display:flex; flex-direction:column-reverse; gap:2px">${segs}</div>
+      </div>`;
+  }).join("");
+
+  /* --- asse dei mesi --- */
+  const asse = win.map((w,i)=>{
+    const nuovoAnno = i === 0 || w.m === 0;
+    return `<span class="${nuovoAnno?"y":""}${ i===meseSel ? " sel":"" }">${ MESI[w.m][0].toUpperCase() + MESI[w.m].slice(1,3) }${
+      nuovoAnno ? "<br>" + String(w.y).slice(2) : "" }</span>`;
+  }).join("");
+
+  /* --- lettura del mese selezionato --- */
+  const sel = perMese[meseSel], sw = win[meseSel];
+  const readout = `
+    <div class="head">
+      <span>${MESI[sw.m]} ${sw.y}</span>
+      <b>${ sel.tot ? euro(sel.tot) : "nessuna rata" }</b>
+    </div>
+    <div class="chips">${ sel.voci.sort((a,b)=>b.val-a.val).map(v=>
+      `<span class="chip"><i class="dot" style="background:${coloreEnte(v.ente)}"></i>${esc(v.ente)} ${euroC(v.val)}</span>`
+    ).join("") }</div>`;
+
+  box.innerHTML = `
+    <div class="bandrow">
+      <div class="gantt">${gantt}</div>
+      <div class="grid12 axis">${asse}</div>
+      <div class="grid12 hist">${hist}</div>
+    </div>
+    <div class="grid12 base"><i style="grid-column:${meseSel+1}/${meseSel+2}"></i></div>
+    <div class="readout">${readout}</div>`;
+
+  box.querySelectorAll(".col").forEach(el=>{
+    const go = ()=>{ meseSel = +el.dataset.c; render(); };
+    el.addEventListener("click", go);
+    el.addEventListener("mouseenter", ()=>{ if(matchMedia("(hover:hover)").matches) go(); });
+  });
+}
+
+/* --- 4. lista --- */
+function renderList(F){
+  const el = document.getElementById("list");
+  if(!F.length){
+    el.innerHTML = `<div class="empty">Nessun finanziamento.<br>Tocca <b>+ Aggiungi</b> per iniziare.</div>`;
+    return;
+  }
+  el.innerHTML = F.map(({f,r})=>{
+    const col = coloreEnte(f.ente);
+    const pct = r.vive.length ? r.pagate.length / r.vive.length * 100 : 0;
+    return `<button class="item" data-id="${f.id}">
+      <div class="top">
+        <i class="dot" style="background:${col}"></i>
+        <span class="name">${esc(f.cosa)}</span>
+        <span class="rata">${euro(f.rata)}</span>
+      </div>
+      <div class="sub">
+        <span>${esc(f.ente)} · ${f.cadenza}</span>
+        <span>${r.pagate.length} di ${r.vive.length}${ r.residuo ? " · resta " + euroC(r.residuo) : " · chiuso" }</span>
+      </div>
+      <div class="prog"><i style="width:${pct}%; background:${col}"></i></div>
+    </button>`;
+  }).join("");
+  el.querySelectorAll(".item").forEach(b => b.onclick = ()=>apriDettaglio(b.dataset.id));
+}
+
+const esc = s => String(s??"").replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+/* ============================================================
+   Pannello scorrevole
+   ============================================================ */
+const scrim = document.getElementById("scrim"), sheet = document.getElementById("sheet");
+function apri(html){
+  sheet.innerHTML = html;
+  scrim.classList.add("on"); sheet.classList.add("on");
+}
+function chiudi(){ scrim.classList.remove("on"); sheet.classList.remove("on"); }
+scrim.onclick = chiudi;
+
+/* --- form aggiungi / modifica --- */
+function apriForm(id){
+  const f = id ? stato.items.find(x=>x.id===id) : null;
+  apri(`
+    <div class="bar-h"><h2>${ f ? "Modifica" : "Nuovo finanziamento" }</h2>
+      <button class="x" id="cx">chiudi</button></div>
+    <div class="err" id="err"></div>
+    <div class="field"><label for="i-cosa">Cosa</label>
+      <input id="i-cosa" placeholder="Divano" value="${esc(f?f.cosa:"")}"></div>
+    <div class="field"><label for="i-ente">Ente</label>
+      <input id="i-ente" placeholder="Klarna" value="${esc(f?f.ente:"")}" list="enti">
+      <datalist id="enti">${ [...new Set(stato.items.map(x=>x.ente))].map(e=>`<option value="${esc(e)}">`).join("") }</datalist></div>
+    <div class="row2">
+      <div class="field"><label for="i-rata">Importo rata</label>
+        <input id="i-rata" inputmode="decimal" placeholder="89,00" value="${ f ? String(f.rata).replace(".",",") : "" }"></div>
+      <div class="field"><label for="i-n">Numero rate</label>
+        <input id="i-n" inputmode="numeric" placeholder="3" value="${ f ? f.n : "" }"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="i-data">Prima scadenza</label>
+        <input id="i-data" type="date" value="${ f ? f.prima : "" }"></div>
+      <div class="field"><label for="i-cad">Cadenza</label>
+        <select id="i-cad">${ Object.keys(CAD).map(c=>
+          `<option value="${c}"${ (f?f.cadenza:"mensile")===c ? " selected":"" }>${c}</option>`).join("") }</select></div>
+    </div>
+    <p class="hint">Date, totale, versato e residuo sono calcolati: non serve inserirli.</p>
+    <button class="primary" id="ok">${ f ? "Salva" : "Aggiungi" }</button>
+    ${ f ? `<button class="danger" id="del">Elimina finanziamento</button>` : "" }
+  `);
+
+  document.getElementById("cx").onclick = chiudi;
+  document.getElementById("ok").onclick = ()=>{
+    const cosa = val("i-cosa"), ente = val("i-ente") || "—";
+    const rata = parseFloat(val("i-rata").replace(/\./g,"").replace(",","."));
+    const n = parseInt(val("i-n"), 10);
+    const prima = val("i-data"), cadenza = val("i-cad");
+    const e = document.getElementById("err");
+    if(!cosa)                    return errore(e, "Manca il nome.");
+    if(!(rata > 0))              return errore(e, "Importo rata non valido.");
+    if(!(n >= 1 && n <= 600))    return errore(e, "Numero rate non valido.");
+    if(!prima)                   return errore(e, "Manca la prima scadenza.");
+    if(f){ Object.assign(f, { cosa, ente, rata, n, prima, cadenza }); }
+    else { stato.items.push({ id:uid(), cosa, ente, rata, n, prima, cadenza, ecc:{} }); }
+    coloreEnte(ente); salva(); chiudi(); render();
+  };
+  const del = document.getElementById("del");
+  if(del) del.onclick = ()=>{
+    if(!confirm("Eliminare «" + f.cosa + "»?")) return;
+    stato.items = stato.items.filter(x=>x.id !== f.id);
+    salva(); chiudi(); render();
+  };
+  setTimeout(()=>document.getElementById("i-cosa").focus(), 260);
+}
+const val = id => document.getElementById(id).value.trim();
+const uid = () => Math.random().toString(36).slice(2,9);
+function errore(el, msg){ el.textContent = msg; el.style.display = "block"; }
+
+/* --- dettaglio: elenco rate ed eccezioni --- */
+function apriDettaglio(id){
+  const f = stato.items.find(x=>x.id===id);
+  if(!f) return;
+  const r = riepilogo(f), col = coloreEnte(f.ente);
+
+  apri(`
+    <div class="bar-h">
+      <h2><i class="dot" style="background:${col}; display:inline-block; margin-right:6px"></i>${esc(f.cosa)}</h2>
+      <button class="x" id="ed">modifica</button><button class="x" id="cx">chiudi</button>
+    </div>
+    <div class="kpis">
+      <div><div class="k">Totale</div><div class="v">${euroC(r.totale)}</div></div>
+      <div><div class="k">Versato</div><div class="v">${euroC(r.versato)}</div></div>
+      <div><div class="k">Residuo</div><div class="v">${euroC(r.residuo)}</div></div>
+    </div>
+    <div class="stateline">${esc(f.ente)} · ${euro(f.rata)} · ${f.cadenza} · ${r.pagate.length} di ${r.vive.length} versate</div>
+    <div class="rlist">${ r.rate.map(x=>`
+      <div class="r ${ x.stato==="pagata"?"paid": x.stato==="saltata"?"skip":"" }">
+        <span class="n">${x.i+1}</span>
+        <span class="d">${dataIt(x.data)}${ x.rinviata ? " ↷" : "" }</span>
+        <span class="a">${ x.stato==="saltata" ? "—" : euro(f.rata) }</span>
+        <span class="tags">
+          <button class="tag${ x.stato==="saltata" ? " on":"" }" data-i="${x.i}" data-t="saltata">salta</button>
+          <button class="tag${ x.rinviata ? " on":"" }" data-i="${x.i}" data-t="rinviata">rinvia</button>
+        </span>
+      </div>`).join("") }</div>
+    <p class="hint" style="margin-top:10px">Le rate scadute risultano pagate da sole.
+      <b>salta</b> la toglie dai conti, <b>rinvia</b> la sposta di un periodo. Tocca di nuovo per annullare.</p>
+  `);
+
+  document.getElementById("cx").onclick = chiudi;
+  document.getElementById("ed").onclick = ()=>apriForm(id);
+  sheet.querySelectorAll(".tag").forEach(b => b.onclick = ()=>{
+    const i = b.dataset.i, t = b.dataset.t;
+    f.ecc = f.ecc || {};
+    if(f.ecc[i] === t) delete f.ecc[i]; else f.ecc[i] = t;
+    salva(); render(); apriDettaglio(id);
+  });
+}
+
+/* --- gestione: backup e svuota --- */
+function apriBackup(){ apriMenu(); }
+function apriMenu(){
+  apri(`
+    <div class="bar-h"><h2>Gestione</h2><button class="x" id="cx">chiudi</button></div>
+    <p class="hint">I finanziamenti sono salvati solo in questo browser. Un backup ogni tanto
+      ti protegge da cronologia cancellata o cambio di dispositivo.</p>
+    <button class="primary" id="exp">Esporta backup</button>
+    <button class="primary" id="imp" style="background:var(--card); color:var(--ink); border:1px solid var(--line)">Importa backup</button>
+    <input type="file" id="file" accept="application/json" hidden>
+    <button class="danger" id="clr">Svuota tutto</button>
+  `);
+  document.getElementById("cx").onclick = chiudi;
+  document.getElementById("exp").onclick = ()=>{
+    const b = new Blob([JSON.stringify(stato,null,2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b);
+    a.download = "scadenzario-" + new Date().toISOString().slice(0,10) + ".json";
+    a.click(); URL.revokeObjectURL(a.href);
+  };
+  document.getElementById("imp").onclick = ()=>document.getElementById("file").click();
+  document.getElementById("file").onchange = ev=>{
+    const file = ev.target.files[0]; if(!file) return;
+    const fr = new FileReader();
+    fr.onload = ()=>{
+      try{
+        const d = JSON.parse(fr.result);
+        if(!Array.isArray(d.items)) throw 0;
+        stato = { v:1, items:d.items, colori:d.colori || {} };
+        salva(); chiudi(); render();
+      }catch(e){ alert("File non valido."); }
+    };
+    fr.readAsText(file);
+  };
+  document.getElementById("clr").onclick = ()=>{
+    if(!confirm("Cancellare tutti i finanziamenti? Esporta prima un backup se ti servono.")) return;
+    stato = { v:1, items:[], colori:{} };
+    salva(); chiudi(); render();
+  };
+}
+
+/* ============================================================
+   Dati di esempio — cancellali con Gestione › Svuota tutto
+   ============================================================ */
+function esempio(){
+  return { v:1, colori:{}, items:[
+    { id:"ex1", cosa:"Divano",       ente:"Klarna",      rata:89,     n:3,  prima:"2026-09-15", cadenza:"mensile",     ecc:{} },
+    { id:"ex2", cosa:"Lavatrice",    ente:"Findomestic", rata:62.5,   n:18, prima:"2026-06-05", cadenza:"mensile",     ecc:{} },
+    { id:"ex3", cosa:"Contributi",   ente:"INPS",        rata:213.4,  n:8,  prima:"2026-08-20", cadenza:"trimestrale", ecc:{} },
+    { id:"ex4", cosa:"Bici gravel",  ente:"PayPal",      rata:145,    n:4,  prima:"2026-09-28", cadenza:"mensile",     ecc:{} }
+  ]};
+}
+
+/* ============================================================
+   Avvio
+   ============================================================ */
+document.getElementById("btnAdd").onclick  = ()=>apriForm(null);
+document.getElementById("btnMenu").onclick = apriMenu;
+document.addEventListener("keydown", e=>{ if(e.key === "Escape") chiudi(); });
+
+carica();
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+# Progetto: Scadenzario Rate
+
+## Cos'è
+Web app personale per tenere sotto controllo le scadenze dei pagamenti
+rateali: acquisti in 3 rate (Klarna, PayPal), finanziamenti, prestiti,
+rateizzazioni (INPS, Findomestic e simili). Serve a sapere a colpo d'occhio
+**quanto c'è da pagare mese per mese** e **quando finisce ogni cosa**.
+
+Non è un'app di contabilità e non registra spese: registra impegni futuri.
+
+## Stack tecnico
+- File `index.html` singolo, autonomo — no build, no installazione, no server
+- Vanilla JavaScript, nessun framework
+- Grafici disegnati a mano (HTML/CSS o SVG inline), nessuna libreria esterna
+- Persistenza in `localStorage`, chiave `rate_stato`
+- PWA installabile su telefono (`manifest.json` + icone)
+- Deve funzionare offline
+
+## Estetica
+Minimalista. Sfondo grigio chiaro, card bianche con angoli arrotondati e
+ombra leggera, accento indigo, testo scuro su chiaro. Pensata prima per
+telefono in verticale, una colonna sola. Niente decorazione: i numeri e i
+grafici sono l'interfaccia.
+
+## Modello dati
+Ogni finanziamento è un record con sei campi inseriti a mano:
+
+| campo            | esempio                    |
+|------------------|----------------------------|
+| Cosa             | Divano                     |
+| Ente             | Klarna (testo libero)      |
+| Importo rata     | 89,00                      |
+| Numero rate      | 3                          |
+| Prima scadenza   | 15/09/2026                 |
+| Cadenza          | mensile (default)          |
+
+La cadenza è un menu: mensile, bimestrale, trimestrale, settimanale.
+Preselezionata su mensile, così nel caso più comune si salta.
+
+Tutto il resto è **calcolato**, non chiesto: date di ogni singola rata,
+data dell'ultima rata, importo totale, quanto già versato, residuo.
+
+## Stato dei pagamenti
+Le rate con scadenza passata si considerano pagate automaticamente —
+nessuna manutenzione mensile. Nel dettaglio di un finanziamento si può
+però marcare a mano una singola rata come **saltata** o **rinviata**, per
+correggere i casi anomali.
+
+## Schermata
+Una sola schermata, quattro blocchi in verticale.
+
+**1 — Tre numeri in testa**
+- totale da pagare nel mese corrente
+- residuo totale su tutti i finanziamenti
+- data dell'ultima rata in assoluto, etichettata "libero il —"
+
+**2 — Timeline (Gantt)**
+Una barra orizzontale per ogni finanziamento, dalla prima all'ultima rata,
+su un asse di **12 mesi scorrevoli** che parte dal mese corrente. Un
+finanziamento che si estende oltre l'orizzonte esce dal bordo destro con
+un'indicazione visiva che continua. Il colore della barra identifica
+l'ente.
+
+**3 — Istogramma mensile impilato**
+Sotto il Gantt, **allineato sulle stesse 12 colonne e sulla stessa
+larghezza**: l'altezza di ogni colonna è il totale da versare quel mese,
+divisa in segmenti colorati per ente. L'allineamento verticale con il
+Gantt è il punto centrale dell'app — guardando una colonna alta e alzando
+gli occhi si vede subito quale finanziamento la sta causando e quando
+finirà.
+
+**4 — Lista dei finanziamenti**
+Una riga per finanziamento: nome, ente, rata, avanzamento (es. "2 di 12").
+Tap per aprire il dettaglio con l'elenco delle rate e le loro date, dove
+si marcano le eccezioni, si modifica o si elimina.
+
+## Colori degli enti
+L'ente è testo libero. Al primo inserimento di un nome nuovo gli viene
+assegnato il primo colore libero di una palette fissa di 8 tinte
+distinguibili, e da quel momento quell'ente ha sempre lo stesso colore in
+tutti i grafici. Nessuna lista da mantenere, nessuna scelta da fare
+all'inserimento.
+
+## Come preferisco lavorare
+- Conferma di aver capito la richiesta prima di implementare
+- Modifiche puntuali e mirate, non redesign generali
+- Output: singolo file `.html` aggiornato, pronto da scaricare
+- Conversazioni in italiano
+- Semplicità sopra ogni cosa: se una funzione richiede un campo in più da
+  compilare ogni mese, probabilmente non serve
+
+## Per iniziare
+Costruisci la prima versione completa e funzionante dell'app in un unico
+file `index.html`, con dentro 3-4 finanziamenti di esempio già inseriti
+così posso valutare subito i grafici. Poi la svuoto e ci metto i miei.
