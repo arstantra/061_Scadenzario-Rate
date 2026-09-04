@@ -84,6 +84,9 @@
   .chips{display:flex; flex-wrap:wrap; gap:4px 10px}
   .chip{display:flex; align-items:center; gap:5px; font-size:12px; font-variant-numeric:tabular-nums}
   .dot{width:8px; height:8px; border-radius:3px; flex:none}
+  .split{margin-top:7px; padding-top:7px; border-top:1px solid var(--line);
+         font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums}
+  .split b{color:var(--ink2); font-weight:600}
 
   /* ---------- 4. lista ---------- */
   .listhead{display:flex; justify-content:space-between; align-items:baseline; padding:8px 4px 8px}
@@ -186,6 +189,19 @@ const KEY = "rate_stato";
 const PALETTE = ["--e0","--e1","--e2","--e3","--e4","--e5","--e6","--e7"];
 const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 const CAD  = { mensile:1, bimestrale:2, trimestrale:3, settimanale:0 };
+
+/* Canale di pagamento. 'auto' = il denaro esce da solo, non devi ricordartene.
+   I finanziamenti inseriti prima di questo campo hanno canale vuoto: restano
+   validi e finiscono nella voce "senza canale" finché non li apri e lo scegli. */
+const CANALI = {
+  addebito:   { nome:"Addebito diretto", breve:"addebito",   auto:true  },
+  carta:      { nome:"Carta di credito", breve:"carta",      auto:true  },
+  paypal:     { nome:"PayPal",           breve:"PayPal",     auto:true  },
+  bonifico:   { nome:"Bonifico",         breve:"bonifico",   auto:false },
+  bollettino: { nome:"Bollettino / F24", breve:"bollettino", auto:false },
+  contanti:   { nome:"Contanti",         breve:"contanti",   auto:false },
+  altro:      { nome:"Altro",            breve:"altro",      auto:false }
+};
 
 let stato = { v:1, items:[], colori:{} };
 let memoriaOk = true;
@@ -370,12 +386,14 @@ function renderChart(F){
   }).join("");
 
   /* --- totali mensili per ente --- */
-  const perMese = win.map(()=>({ tot:0, voci:[] }));
+  const perMese = win.map(()=>({ tot:0, voci:[], auto:0, mano:0, ignoto:0 }));
   F.forEach(({f,r})=>{
+    const can = CANALI[f.canale];
     r.vive.forEach(x=>{
       const c = idxDi(x.data) - primo;
       if(c < 0 || c > 11) return;
       perMese[c].tot += f.rata;
+      perMese[c][ !can ? "ignoto" : can.auto ? "auto" : "mano" ] += f.rata;
       const v = perMese[c].voci.find(v=>v.ente === f.ente);
       if(v) v.val += f.rata; else perMese[c].voci.push({ ente:f.ente, val:f.rata });
     });
@@ -407,7 +425,12 @@ function renderChart(F){
     </div>
     <div class="chips">${ sel.voci.sort((a,b)=>b.val-a.val).map(v=>
       `<span class="chip"><i class="dot" style="background:${coloreEnte(v.ente)}"></i>${esc(v.ente)} ${euroC(v.val)}</span>`
-    ).join("") }</div>`;
+    ).join("") }</div>
+    ${ sel.tot ? `<div class="split">${ [
+        sel.auto   ? `<b>${euroC(sel.auto)}</b> escono da soli` : null,
+        sel.mano   ? `<b>${euroC(sel.mano)}</b> da pagare a mano` : null,
+        sel.ignoto ? `<b>${euroC(sel.ignoto)}</b> senza canale` : null
+      ].filter(Boolean).join(" · ") }</div>` : "" }`;
 
   box.innerHTML = `
     <div class="bandrow">
@@ -418,8 +441,15 @@ function renderChart(F){
     <div class="grid12 base"><i style="grid-column:${meseSel+1}/${meseSel+2}"></i></div>
     <div class="readout">${readout}</div>`;
 
+  /* Cambiare mese selezionato ridisegna solo questa card, non tutta l'app:
+     il passaggio del mouse sull'istogramma non deve far sfarfallare la lista. */
   box.querySelectorAll(".col").forEach(el=>{
-    const go = ()=>{ meseSel = +el.dataset.c; render(); };
+    const go = ()=>{
+      const c = +el.dataset.c;
+      if(c === meseSel) return;
+      meseSel = c;
+      renderChart(F);
+    };
     el.addEventListener("click", go);
     el.addEventListener("mouseenter", ()=>{ if(matchMedia("(hover:hover)").matches) go(); });
   });
@@ -442,7 +472,9 @@ function renderList(F){
         <span class="rata">${euro(f.rata)}</span>
       </div>
       <div class="sub">
-        <span>${esc(f.ente)} · ${f.cadenza}</span>
+        <span>${ [ esc(f.ente),
+                   f.cadenza !== "mensile" ? f.cadenza : null,
+                   CANALI[f.canale] ? CANALI[f.canale].breve : null ].filter(Boolean).join(" · ") }</span>
         <span>${r.pagate.length} di ${r.vive.length}${ r.residuo ? " · resta " + euroC(r.residuo) : " · chiuso" }</span>
       </div>
       <div class="prog"><i style="width:${pct}%; background:${col}"></i></div>
@@ -482,12 +514,15 @@ function apriForm(id){
       <div class="field"><label for="i-n">Numero rate</label>
         <input id="i-n" inputmode="numeric" placeholder="3" value="${ f ? f.n : "" }"></div>
     </div>
+    <div class="field"><label for="i-data">Prima scadenza</label>
+      <input id="i-data" type="date" value="${ f ? f.prima : "" }"></div>
     <div class="row2">
-      <div class="field"><label for="i-data">Prima scadenza</label>
-        <input id="i-data" type="date" value="${ f ? f.prima : "" }"></div>
       <div class="field"><label for="i-cad">Cadenza</label>
         <select id="i-cad">${ Object.keys(CAD).map(c=>
           `<option value="${c}"${ (f?f.cadenza:"mensile")===c ? " selected":"" }>${c}</option>`).join("") }</select></div>
+      <div class="field"><label for="i-can">Canale</label>
+        <select id="i-can"><option value="">— non indicato</option>${ Object.entries(CANALI).map(([k,v])=>
+          `<option value="${k}"${ (f&&f.canale)===k ? " selected":"" }>${v.nome}</option>`).join("") }</select></div>
     </div>
     <p class="hint">Date, totale, versato e residuo sono calcolati: non serve inserirli.</p>
     <button class="primary" id="ok">${ f ? "Salva" : "Aggiungi" }</button>
@@ -499,14 +534,14 @@ function apriForm(id){
     const cosa = val("i-cosa"), ente = val("i-ente") || "—";
     const rata = parseFloat(val("i-rata").replace(/\./g,"").replace(",","."));
     const n = parseInt(val("i-n"), 10);
-    const prima = val("i-data"), cadenza = val("i-cad");
+    const prima = val("i-data"), cadenza = val("i-cad"), canale = val("i-can");
     const e = document.getElementById("err");
     if(!cosa)                    return errore(e, "Manca il nome.");
     if(!(rata > 0))              return errore(e, "Importo rata non valido.");
     if(!(n >= 1 && n <= 600))    return errore(e, "Numero rate non valido.");
     if(!prima)                   return errore(e, "Manca la prima scadenza.");
-    if(f){ Object.assign(f, { cosa, ente, rata, n, prima, cadenza }); }
-    else { stato.items.push({ id:uid(), cosa, ente, rata, n, prima, cadenza, ecc:{} }); }
+    if(f){ Object.assign(f, { cosa, ente, rata, n, prima, cadenza, canale }); }
+    else { stato.items.push({ id:uid(), cosa, ente, rata, n, prima, cadenza, canale, ecc:{} }); }
     coloreEnte(ente); salva(); chiudi(); render();
   };
   const del = document.getElementById("del");
@@ -537,7 +572,9 @@ function apriDettaglio(id){
       <div><div class="k">Versato</div><div class="v">${euroC(r.versato)}</div></div>
       <div><div class="k">Residuo</div><div class="v">${euroC(r.residuo)}</div></div>
     </div>
-    <div class="stateline">${esc(f.ente)} · ${euro(f.rata)} · ${f.cadenza} · ${r.pagate.length} di ${r.vive.length} versate</div>
+    <div class="stateline">${esc(f.ente)} · ${euro(f.rata)} · ${f.cadenza} · ${
+      CANALI[f.canale] ? CANALI[f.canale].nome + (CANALI[f.canale].auto ? " (automatico)" : "") : "canale non indicato"
+    } · ${r.pagate.length} di ${r.vive.length} versate</div>
     <div class="rlist">${ r.rate.map(x=>`
       <div class="r ${ x.stato==="pagata"?"paid": x.stato==="saltata"?"skip":"" }">
         <span class="n">${x.i+1}</span>
@@ -608,10 +645,10 @@ function apriMenu(){
    ============================================================ */
 function esempio(){
   return { v:1, colori:{}, items:[
-    { id:"ex1", cosa:"Divano",       ente:"Klarna",      rata:89,     n:3,  prima:"2026-09-15", cadenza:"mensile",     ecc:{} },
-    { id:"ex2", cosa:"Lavatrice",    ente:"Findomestic", rata:62.5,   n:18, prima:"2026-06-05", cadenza:"mensile",     ecc:{} },
-    { id:"ex3", cosa:"Contributi",   ente:"INPS",        rata:213.4,  n:8,  prima:"2026-08-20", cadenza:"trimestrale", ecc:{} },
-    { id:"ex4", cosa:"Bici gravel",  ente:"PayPal",      rata:145,    n:4,  prima:"2026-09-28", cadenza:"mensile",     ecc:{} }
+    { id:"ex1", cosa:"Divano",       ente:"Klarna",      rata:89,     n:3,  prima:"2026-09-15", cadenza:"mensile",     canale:"carta",      ecc:{} },
+    { id:"ex2", cosa:"Lavatrice",    ente:"Findomestic", rata:62.5,   n:18, prima:"2026-06-05", cadenza:"mensile",     canale:"addebito",   ecc:{} },
+    { id:"ex3", cosa:"Contributi",   ente:"INPS",        rata:213.4,  n:8,  prima:"2026-08-20", cadenza:"trimestrale", canale:"bollettino", ecc:{} },
+    { id:"ex4", cosa:"Bici gravel",  ente:"PayPal",      rata:145,    n:4,  prima:"2026-09-28", cadenza:"mensile",     canale:"paypal",     ecc:{} }
   ]};
 }
 
