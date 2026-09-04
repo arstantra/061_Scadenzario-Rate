@@ -194,15 +194,24 @@ const CAD  = { mensile:1, bimestrale:2, trimestrale:3, settimanale:0 };
    I finanziamenti inseriti prima di questo campo hanno canale vuoto: restano
    validi e finiscono nella voce "senza canale" finché non li apri e lo scegli. */
 const CANALI = {
-  addebito:   { nome:"Addebito diretto", breve:"addebito",   auto:true  },
-  bustapaga:  { nome:"Busta paga",       breve:"busta paga", auto:true  },
-  carta:      { nome:"Carta di credito", breve:"carta",      auto:true  },
-  paypal:     { nome:"PayPal",           breve:"PayPal",     auto:true  },
-  bonifico:   { nome:"Bonifico",         breve:"bonifico",   auto:false },
-  bollettino: { nome:"Bollettino / F24", breve:"bollettino", auto:false },
-  contanti:   { nome:"Contanti",         breve:"contanti",   auto:false },
-  altro:      { nome:"Altro",            breve:"altro",      auto:false }
+  poste:      { nome:"Prelievo cc Poste",  breve:"Poste",      auto:true  },
+  webank:     { nome:"Prelievo cc Webank", breve:"Webank",     auto:true  },
+  bustapaga:  { nome:"Busta paga",         breve:"busta paga", auto:true  },
+  carta:      { nome:"Carta di credito",   breve:"carta",      auto:true  },
+  paypal:     { nome:"PayPal",             breve:"PayPal",     auto:true  },
+  bonifico:   { nome:"Bonifico",           breve:"bonifico",   auto:false },
+  bollettino: { nome:"Bollettino / F24",   breve:"bollettino", auto:false },
+  contanti:   { nome:"Contanti",           breve:"contanti",   auto:false },
+  altro:      { nome:"Altro",              breve:"altro",      auto:false },
+  /* Voce superata da Poste/Webank: non compare più nella tendina, ma i
+     finanziamenti che la usano continuano a funzionare e a mostrarla. */
+  addebito:   { nome:"Addebito diretto",   breve:"addebito",   auto:true, storico:true }
 };
+
+/* Il mese di Andrea non è quello del calendario: comincia il 23.
+   Il periodo 23 ago – 22 set si chiama "settembre", cioè prende il nome dal
+   mese in cui finisce. Cambiare questo numero sposta tutta l'app. */
+const INIZIO_MESE = 23;
 
 let stato = { v:1, items:[], colori:{} };
 let memoriaOk = true;
@@ -286,20 +295,33 @@ function riepilogo(f){
 const euro  = n => "€ " + n.toLocaleString("it-IT",{minimumFractionDigits:2, maximumFractionDigits:2});
 const euroC = n => "€ " + Math.round(n).toLocaleString("it-IT");
 const dataIt = d => String(d.getDate()).padStart(2,"0") + "/" + String(d.getMonth()+1).padStart(2,"0") + "/" + d.getFullYear();
-const meseAnno = d => MESI[d.getMonth()] + " " + d.getFullYear();
 
 /* ============================================================
    Griglia condivisa: 12 mesi da quello corrente
    ============================================================ */
+/* A quale periodo appartiene una data: dal 23 in poi si è già nel periodo
+   successivo, che porta il nome del mese in cui si chiude. */
+function periodoDi(d){
+  const i = d.getFullYear()*12 + d.getMonth();
+  return d.getDate() >= INIZIO_MESE ? i + 1 : i;
+}
+const periodoOggi = periodoDi(oggi);
+const nomePeriodo  = i => MESI[i % 12] + " " + Math.floor(i / 12);
+/* Estremi reali del periodo: dal 23 del mese prima al 22 del mese che gli dà il nome. */
+function rangePeriodo(i){
+  const y = Math.floor(i/12), m = i % 12;
+  return { da:new Date(y, m-1, INIZIO_MESE), a:new Date(y, m, INIZIO_MESE-1) };
+}
+const gg = d => String(d.getDate()).padStart(2,"0") + "/" + String(d.getMonth()+1).padStart(2,"0");
+
 function finestra(){
   const out = [];
   for(let k=0;k<12;k++){
-    const d = new Date(oggi.getFullYear(), oggi.getMonth()+k, 1);
-    out.push({ y:d.getFullYear(), m:d.getMonth(), idx:d.getFullYear()*12 + d.getMonth() });
+    const i = periodoOggi + k;
+    out.push({ y:Math.floor(i/12), m:i % 12, idx:i });
   }
   return out;
 }
-const idxDi = d => d.getFullYear()*12 + d.getMonth();
 
 let meseSel = 0;   // colonna selezionata nell'istogramma
 
@@ -321,24 +343,25 @@ function render(){
 
 /* --- 1. tre numeri --- */
 function renderStats(F){
-  const mese = idxDi(oggi);
+  const mese = periodoOggi;
   let meseTot = 0, meseResto = 0, residuo = 0, totale = 0, versato = 0;
   let fine = null, fineNome = "";
 
   F.forEach(({f,r})=>{
     residuo += r.residuo; totale += r.totale; versato += r.versato;
     r.vive.forEach(x=>{
-      if(idxDi(x.data) === mese){ meseTot += f.rata; if(x.stato==="attesa") meseResto += f.rata; }
+      if(periodoDi(x.data) === mese){ meseTot += f.rata; if(x.stato==="attesa") meseResto += f.rata; }
     });
     const ultimaAttesa = r.attesa.length ? r.attesa[r.attesa.length-1].data : null;
     if(ultimaAttesa && (!fine || ultimaAttesa > fine)){ fine = ultimaAttesa; fineNome = f.cosa; }
   });
 
+  const rp = rangePeriodo(mese);
   document.getElementById("stats").innerHTML = `
     <div class="stat">
-      <div class="k">${MESI[oggi.getMonth()]} ${oggi.getFullYear()}</div>
+      <div class="k">${nomePeriodo(mese)}</div>
       <div class="v">${euroC(meseTot)}</div>
-      <div class="s">${ meseTot === 0 ? "nessuna scadenza"
+      <div class="s">${gg(rp.da)} – ${gg(rp.a)}<br>${ meseTot === 0 ? "nessuna scadenza"
           : meseResto === 0 ? "tutto versato"
           : meseResto === meseTot ? "ancora da versare"
           : "ancora " + euroC(meseResto) }</div>
@@ -350,7 +373,7 @@ function renderStats(F){
     </div>
     <div class="stat wide">
       <div class="k">Libero il</div>
-      <div class="v">${ fine ? meseAnno(fine) : "adesso" }</div>
+      <div class="v">${ fine ? nomePeriodo(periodoDi(fine)) : "adesso" }</div>
       <div class="s">${ fine ? "ultima rata: " + fineNome + " · " + dataIt(fine) : "nessuna rata in sospeso" }</div>
     </div>`;
 }
@@ -367,7 +390,7 @@ function renderChart(F){
   const barre = F.map(({f,r})=>{
     const vive = r.vive;
     if(!vive.length) return null;
-    const a = idxDi(vive[0].data), b = idxDi(vive[vive.length-1].data);
+    const a = periodoDi(vive[0].data), b = periodoDi(vive[vive.length-1].data);
     if(b < primo || a > ultimo) return null;                 // fuori finestra
     const start = Math.max(a, primo) - primo;
     const end   = Math.min(b, ultimo) - primo;
@@ -387,16 +410,18 @@ function renderChart(F){
   }).join("");
 
   /* --- totali mensili per ente --- */
-  const perMese = win.map(()=>({ tot:0, voci:[], auto:0, mano:0, ignoto:0 }));
+  const perMese = win.map(()=>({ tot:0, voci:[], canali:[] }));
   F.forEach(({f,r})=>{
     const can = CANALI[f.canale];
+    const etichetta = can ? can.breve : "senza canale";
     r.vive.forEach(x=>{
-      const c = idxDi(x.data) - primo;
+      const c = periodoDi(x.data) - primo;
       if(c < 0 || c > 11) return;
       perMese[c].tot += f.rata;
-      perMese[c][ !can ? "ignoto" : can.auto ? "auto" : "mano" ] += f.rata;
       const v = perMese[c].voci.find(v=>v.ente === f.ente);
       if(v) v.val += f.rata; else perMese[c].voci.push({ ente:f.ente, val:f.rata });
+      const k = perMese[c].canali.find(k=>k.nome === etichetta);
+      if(k) k.val += f.rata; else perMese[c].canali.push({ nome:etichetta, val:f.rata });
     });
   });
   const max = Math.max(1, ...perMese.map(m=>m.tot));
@@ -418,20 +443,17 @@ function renderChart(F){
   }).join("");
 
   /* --- lettura del mese selezionato --- */
-  const sel = perMese[meseSel], sw = win[meseSel];
+  const sel = perMese[meseSel], sw = win[meseSel], rs = rangePeriodo(sw.idx);
   const readout = `
     <div class="head">
-      <span>${MESI[sw.m]} ${sw.y}</span>
+      <span>${MESI[sw.m]} ${sw.y} <span class="muted">${gg(rs.da)} – ${gg(rs.a)}</span></span>
       <b>${ sel.tot ? euro(sel.tot) : "nessuna rata" }</b>
     </div>
     <div class="chips">${ sel.voci.sort((a,b)=>b.val-a.val).map(v=>
       `<span class="chip"><i class="dot" style="background:${coloreEnte(v.ente)}"></i>${esc(v.ente)} ${euroC(v.val)}</span>`
     ).join("") }</div>
-    ${ sel.tot ? `<div class="split">${ [
-        sel.auto   ? `<b>${euroC(sel.auto)}</b> escono da soli` : null,
-        sel.mano   ? `<b>${euroC(sel.mano)}</b> da pagare a mano` : null,
-        sel.ignoto ? `<b>${euroC(sel.ignoto)}</b> senza canale` : null
-      ].filter(Boolean).join(" · ") }</div>` : "" }`;
+    ${ sel.tot ? `<div class="split">${ sel.canali.sort((a,b)=>b.val-a.val).map(k=>
+        `${esc(k.nome)} <b>${euroC(k.val)}</b>`).join(" · ") }</div>` : "" }`;
 
   box.innerHTML = `
     <div class="bandrow">
@@ -522,8 +544,9 @@ function apriForm(id){
         <select id="i-cad">${ Object.keys(CAD).map(c=>
           `<option value="${c}"${ (f?f.cadenza:"mensile")===c ? " selected":"" }>${c}</option>`).join("") }</select></div>
       <div class="field"><label for="i-can">Canale</label>
-        <select id="i-can"><option value="">— non indicato</option>${ Object.entries(CANALI).map(([k,v])=>
-          `<option value="${k}"${ (f&&f.canale)===k ? " selected":"" }>${v.nome}</option>`).join("") }</select></div>
+        <select id="i-can"><option value="">— non indicato</option>${ Object.entries(CANALI)
+          .filter(([k,v])=>!v.storico || (f && f.canale) === k)
+          .map(([k,v])=>`<option value="${k}"${ (f&&f.canale)===k ? " selected":"" }>${v.nome}</option>`).join("") }</select></div>
     </div>
     <p class="hint">Date, totale, versato e residuo sono calcolati: non serve inserirli.</p>
     <button class="primary" id="ok">${ f ? "Salva" : "Aggiungi" }</button>
@@ -646,9 +669,9 @@ function apriMenu(){
    ============================================================ */
 function esempio(){
   return { v:1, colori:{}, items:[
-    { id:"ex1", cosa:"Divano",       ente:"Klarna",      rata:89,     n:3,  prima:"2026-09-15", cadenza:"mensile",     canale:"carta",      ecc:{} },
-    { id:"ex2", cosa:"Lavatrice",    ente:"Findomestic", rata:62.5,   n:18, prima:"2026-06-05", cadenza:"mensile",     canale:"addebito",   ecc:{} },
-    { id:"ex3", cosa:"Contributi",   ente:"INPS",        rata:213.4,  n:8,  prima:"2026-08-20", cadenza:"trimestrale", canale:"bollettino", ecc:{} },
+    { id:"ex1", cosa:"Divano",       ente:"Klarna",      rata:89,     n:3,  prima:"2026-09-15", cadenza:"mensile",     canale:"webank",     ecc:{} },
+    { id:"ex2", cosa:"Lavatrice",    ente:"Findomestic", rata:62.5,   n:18, prima:"2026-06-05", cadenza:"mensile",     canale:"poste",      ecc:{} },
+    { id:"ex3", cosa:"Contributi",   ente:"INPS",        rata:213.4,  n:8,  prima:"2026-08-20", cadenza:"trimestrale", canale:"poste",      ecc:{} },
     { id:"ex4", cosa:"Bici gravel",  ente:"PayPal",      rata:145,    n:4,  prima:"2026-09-28", cadenza:"mensile",     canale:"paypal",     ecc:{} }
   ]};
 }
