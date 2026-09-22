@@ -156,6 +156,12 @@
   .kpis .v{font-size:16px; font-weight:640; font-variant-numeric:tabular-nums; margin-top:2px}
   footer{text-align:center; padding:18px 0 4px; font-size:12px; color:var(--muted)}
   footer button{font-size:12px; color:var(--muted); text-decoration:underline; text-underline-offset:2px}
+  footer.warn{color:#9a5b00}
+  footer.warn button{color:#9a5b00; font-weight:600}
+  .vers{background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; margin:6px 0 12px}
+  .vers .r .d small{display:block; font-size:11.5px; color:var(--muted)}
+  .sec{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:650; margin:18px 4px 4px}
+  .ok{font-size:12.5px; color:var(--ink2); margin:8px 2px; min-height:1em}
 </style>
 </head>
 <body>
@@ -215,18 +221,64 @@ const INIZIO_MESE = 23;
 
 let stato = { v:1, items:[], colori:{} };
 let memoriaOk = true;
+let messoDaParte = false;   // c'era un record illeggibile: conservato, non sovrascritto
 
+/* Chiavi accessorie: stanno FUORI da rate_stato, così il formato dei dati
+   non cambia e un backup importato non se le porta dietro. */
+const K_IST  = "rate_istantanee";     // ultime versioni, per Ripristina
+const K_BAK  = "rate_ultimo_backup";  // data dell'ultima copia salvata fuori
+const K_MOD  = "rate_ultima_modifica";
+const K_ILL  = "rate_stato_illeggibile";
+const MAX_IST = 15;
+
+const leggi   = k => { try{ return localStorage.getItem(k); }catch(e){ return null; } };
+const scrivi  = (k,v) => { try{ localStorage.setItem(k, v); return true; }catch(e){ return false; } };
+const valido  = d => d && typeof d === "object" && Array.isArray(d.items);
+
+/* Se la memoria è vuota l'app parte vuota: niente dati di esempio, che
+   nasconderebbero una perdita. Se il record è illeggibile viene messo da
+   parte intatto e non viene mai sovrascritto. */
 function carica(){
+  let raw;
+  try{ raw = localStorage.getItem(KEY); }
+  catch(e){ memoriaOk = false; return; }
+  if(!raw) return;
   try{
-    const raw = localStorage.getItem(KEY);
-    if(raw){ stato = JSON.parse(raw); }
-    else { stato = esempio(); salva(); }
-  }catch(e){ memoriaOk = false; stato = esempio(); }
+    const d = JSON.parse(raw);
+    if(!valido(d)) throw 0;
+    stato = d; stato.colori = stato.colori || {};
+  }catch(e){
+    if(!leggi(K_ILL)) scrivi(K_ILL, raw);
+    messoDaParte = true;
+  }
 }
 function salva(){
-  try{ localStorage.setItem(KEY, JSON.stringify(stato)); }
+  istantaneaDelGiorno();
+  try{ localStorage.setItem(KEY, JSON.stringify(stato)); scrivi(K_MOD, new Date().toISOString()); }
   catch(e){ memoriaOk = false; }
 }
+
+/* --- istantanee: copie datate dello stato, le ultime MAX_IST ---
+   Una automatica al primo salvataggio di ogni giorno (fotografa com'era
+   prima), più una prima di ogni azione che cancella o sostituisce. */
+function istantanee(){ try{ return JSON.parse(leggi(K_IST)) || []; }catch(e){ return []; } }
+function istantanea(motivo){
+  const vecchio = leggi(KEY);
+  if(!vecchio) return false;
+  const L = istantanee();
+  if(L.length && L[0].dati === vecchio && L[0].motivo === motivo) return true;
+  L.unshift({ t:new Date().toISOString(), motivo, dati:vecchio });
+  while(L.length > MAX_IST) L.pop();
+  while(L.length && !scrivi(K_IST, JSON.stringify(L))) L.pop();   // memoria piena: scarta le più vecchie
+  return L.length > 0;
+}
+function istantaneaDelGiorno(){
+  const L = istantanee(), g = new Date().toISOString().slice(0,10);
+  if(!L.some(x=>x.t.slice(0,10) === g)) istantanea("inizio giornata");
+}
+
+/* chiede al browser di non ripulire questi dati per fare spazio */
+try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 
 /* colore stabile per ente: primo slot libero, poi sempre quello */
 function coloreEnte(ente){
@@ -334,11 +386,29 @@ function render(){
   renderChart(F);
   renderList(F);
   document.getElementById("count").textContent = F.length ? F.length : "";
-  document.getElementById("foot").innerHTML = memoriaOk
-    ? `I dati restano su questo dispositivo. <button id="bk">backup</button>`
-    : `<b>Memoria non disponibile</b> — i dati non verranno salvati.`;
-  const bk = document.getElementById("bk");
-  if(bk) bk.onclick = apriBackup;
+  renderFoot();
+}
+
+/* Riga di stato: quando è stata salvata l'ultima copia fuori dal telefono.
+   Diventa evidente se ci sono modifiche non salvate da più di 30 giorni. */
+const GIORNI_AVVISO = 30;
+function statoBackup(){
+  const b = leggi(K_BAK), m = leggi(K_MOD);
+  const giorni = b ? Math.floor((Date.now() - new Date(b)) / 864e5) : null;
+  const cambiato = !!m && (!b || m > b);
+  const avviso = stato.items.length > 0 && cambiato && (giorni === null || giorni >= GIORNI_AVVISO);
+  const quando = giorni === null ? "mai" : giorni === 0 ? "oggi" : giorni === 1 ? "ieri" : giorni + " giorni fa";
+  return { quando, avviso, cambiato };
+}
+function renderFoot(){
+  const el = document.getElementById("foot");
+  if(!memoriaOk){ el.innerHTML = `<b>Memoria non disponibile</b> — i dati non verranno salvati.`; return; }
+  const s = statoBackup();
+  el.className = s.avviso ? "warn" : "";
+  el.innerHTML = (messoDaParte ? `Dati precedenti illeggibili: conservati in Gestione.<br>` : "")
+    + `Ultima copia: ${s.quando}${ s.cambiato && s.quando !== "mai" ? " · ci sono modifiche dopo" : "" }. `
+    + `<button id="bk">salva copia</button>`;
+  document.getElementById("bk").onclick = salvaCopia;
 }
 
 /* --- 1. tre numeri --- */
@@ -482,7 +552,9 @@ function renderChart(F){
 function renderList(F){
   const el = document.getElementById("list");
   if(!F.length){
-    el.innerHTML = `<div class="empty">Nessun finanziamento.<br>Tocca <b>+ Aggiungi</b> per iniziare.</div>`;
+    el.innerHTML = `<div class="empty">Nessun finanziamento.<br>Tocca <b>+ Aggiungi</b> per iniziare,
+      oppure <button id="impVuoto" style="text-decoration:underline; color:var(--accent)">importa una copia</button>.</div>`;
+    document.getElementById("impVuoto").onclick = ()=>{ apriMenu(); document.getElementById("file").click(); };
     return;
   }
   el.innerHTML = F.map(({f,r})=>{
@@ -571,6 +643,7 @@ function apriForm(id){
   const del = document.getElementById("del");
   if(del) del.onclick = ()=>{
     if(!confirm("Eliminare «" + f.cosa + "»?")) return;
+    istantanea("prima di eliminare «" + f.cosa + "»");
     stato.items = stato.items.filter(x=>x.id !== f.id);
     salva(); chiudi(); render();
   };
@@ -623,57 +696,111 @@ function apriDettaglio(id){
   });
 }
 
-/* --- gestione: backup e svuota --- */
+/* --- gestione: copie, versioni precedenti, svuota --- */
+const oggiLocale = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const quandoIt = iso => { const d = new Date(iso); return dataIt(d) + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); };
+
+/* Salva una copia fuori dal browser. Su telefono e tablet apre il menu
+   Condividi (scegli OneDrive o Drive); su PC scarica il file.
+   Android non condivide file .json: in quel caso lo stesso contenuto va in un .txt. */
+async function salvaCopia(){
+  const testo = JSON.stringify({ app:"Scadenzario Rate", salvato:new Date().toISOString(), ...stato }, null, 2);
+  const base  = "scadenzario-" + oggiLocale();
+  const tocco = matchMedia("(pointer:coarse)").matches;
+  if(tocco && navigator.canShare){
+    const cand = [ new File([testo], base + ".json", {type:"application/json"}),
+                   new File([testo], base + ".txt",  {type:"text/plain"}) ];
+    const file = cand.find(f=>{ try{ return navigator.canShare({ files:[f] }); }catch(e){ return false; } });
+    if(file){
+      try{ await navigator.share({ files:[file], title:base }); return copiaFatta(); }
+      catch(e){ if(e && e.name === "AbortError") return false; }   // annullato: non conta come copia
+    }
+  }
+  scarica(testo, base + ".json");
+  return copiaFatta();
+}
+function scarica(testo, nome){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([testo], {type:"application/json"}));
+  a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+function copiaFatta(){
+  scrivi(K_BAK, new Date().toISOString());
+  renderFoot();
+  const m = document.getElementById("msg"); if(m) m.textContent = "Copia salvata.";
+  const u = document.getElementById("ult"); if(u) u.textContent = "oggi";
+  return true;
+}
+
+/* un file importato deve avere l'aspetto giusto, voce per voce */
+function datiImportabili(d){
+  if(!valido(d)) return null;
+  const buoni = d.items.every(f => f && f.id && typeof f.prima === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.prima)
+    && typeof f.rata === "number" && f.rata > 0 && Number.isInteger(f.n) && f.n >= 1 && (f.cadenza in CAD));
+  return buoni ? { v:1, items:d.items, colori:d.colori || {} } : null;
+}
+
 function apriBackup(){ apriMenu(); }
-function apriMenu(){
+function apriMenu(msg){
+  if(typeof msg !== "string") msg = "";   // chiamata da un clic: arriva l'evento, non un messaggio
+  const L = istantanee(), ill = leggi(K_ILL);
   apri(`
     <div class="bar-h"><h2>Gestione</h2><button class="x" id="cx">chiudi</button></div>
-    <p class="hint">I finanziamenti sono salvati solo in questo browser. Un backup ogni tanto
-      ti protegge da cronologia cancellata o cambio di dispositivo.</p>
-    <button class="primary" id="exp">Esporta backup</button>
-    <button class="primary" id="imp" style="background:var(--card); color:var(--ink); border:1px solid var(--line)">Importa backup</button>
-    <input type="file" id="file" accept="application/json" hidden>
+    <p class="hint">I finanziamenti stanno solo in questo browser. <b>Salva copia</b> li mette al sicuro
+      fuori dal telefono: dal menu Condividi scegli OneDrive o Drive.
+      Ultima copia: <b id="ult">${statoBackup().quando}</b>.</p>
+    <button class="primary" id="exp">Salva copia</button>
+    <button class="primary" id="imp" style="background:var(--card); color:var(--ink); border:1px solid var(--line)">Importa copia</button>
+    <input type="file" id="file" accept=".json,.txt,application/json,text/plain" hidden>
+    <div class="ok" id="msg">${msg ? esc(msg) : ""}</div>
+
+    ${ L.length ? `<div class="sec">Versioni precedenti</div>
+      <div class="rlist vers">${ L.map((x,i)=>{
+        let n = "?"; try{ n = JSON.parse(x.dati).items.length; }catch(e){}
+        return `<div class="r"><span class="d">${quandoIt(x.t)}<small>${esc(x.motivo)} · ${n} finanziament${n===1?"o":"i"}</small></span>
+          <span class="tags"><button class="tag" data-v="${i}">ripristina</button></span></div>`; }).join("") }</div>
+      <p class="hint">Ripristinare non perde nulla: la versione attuale finisce a sua volta qui.</p>` : "" }
+
+    ${ ill ? `<div class="sec">Dati illeggibili messi da parte</div>
+      <p class="hint">All'avvio c'era un salvataggio che l'app non riusciva a leggere. È conservato intatto.</p>
+      <button class="primary" id="ill" style="background:var(--card); color:var(--ink); border:1px solid var(--line)">Scarica i dati illeggibili</button>` : "" }
+
     <button class="danger" id="clr">Svuota tutto</button>
   `);
+  const scrivimsg = t => document.getElementById("msg").textContent = t;
   document.getElementById("cx").onclick = chiudi;
-  document.getElementById("exp").onclick = ()=>{
-    const b = new Blob([JSON.stringify(stato,null,2)], {type:"application/json"});
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(b);
-    a.download = "scadenzario-" + new Date().toISOString().slice(0,10) + ".json";
-    a.click(); URL.revokeObjectURL(a.href);
-  };
+  document.getElementById("exp").onclick = salvaCopia;
   document.getElementById("imp").onclick = ()=>document.getElementById("file").click();
   document.getElementById("file").onchange = ev=>{
     const file = ev.target.files[0]; if(!file) return;
     const fr = new FileReader();
     fr.onload = ()=>{
-      try{
-        const d = JSON.parse(fr.result);
-        if(!Array.isArray(d.items)) throw 0;
-        stato = { v:1, items:d.items, colori:d.colori || {} };
-        salva(); chiudi(); render();
-      }catch(e){ alert("File non valido."); }
+      let d = null;
+      try{ d = datiImportabili(JSON.parse(fr.result)); }catch(e){}
+      if(!d) return scrivimsg("Questo file non è una copia dello Scadenzario: nulla è stato cambiato.");
+      const conservata = istantanea("prima di importare");
+      stato = d; salva(); render();
+      apriMenu("Importati " + d.items.length + " finanziamenti." + (conservata ? " La situazione di prima è tra le versioni precedenti." : ""));
     };
     fr.readAsText(file);
   };
+  sheet.querySelectorAll("[data-v]").forEach(b => b.onclick = ()=>{
+    const x = istantanee()[+b.dataset.v]; if(!x) return;
+    let d = null; try{ d = JSON.parse(x.dati); }catch(e){}
+    if(!valido(d)) return scrivimsg("Questa versione non è leggibile.");
+    istantanea("prima di ripristinare");
+    stato = d; stato.colori = stato.colori || {}; salva(); render();
+    apriMenu("Ripristinata la versione del " + quandoIt(x.t) + ".");
+  });
+  const bi = document.getElementById("ill");
+  if(bi) bi.onclick = ()=>scarica(ill, "scadenzario-illeggibile-" + oggiLocale() + ".json");
   document.getElementById("clr").onclick = ()=>{
-    if(!confirm("Cancellare tutti i finanziamenti? Esporta prima un backup se ti servono.")) return;
+    if(!confirm("Cancellare tutti i finanziamenti? Potrai recuperarli da Versioni precedenti.")) return;
+    istantanea("prima di svuotare");
     stato = { v:1, items:[], colori:{} };
-    salva(); chiudi(); render();
+    salva(); render(); apriMenu("Tutto svuotato. La situazione di prima è tra le versioni precedenti.");
   };
-}
-
-/* ============================================================
-   Dati di esempio — cancellali con Gestione › Svuota tutto
-   ============================================================ */
-function esempio(){
-  return { v:1, colori:{}, items:[
-    { id:"ex1", cosa:"Divano",       ente:"Klarna",      rata:89,     n:3,  prima:"2026-09-15", cadenza:"mensile",     canale:"webank",     ecc:{} },
-    { id:"ex2", cosa:"Lavatrice",    ente:"Findomestic", rata:62.5,   n:18, prima:"2026-06-05", cadenza:"mensile",     canale:"poste",      ecc:{} },
-    { id:"ex3", cosa:"Contributi",   ente:"INPS",        rata:213.4,  n:8,  prima:"2026-08-20", cadenza:"trimestrale", canale:"poste",      ecc:{} },
-    { id:"ex4", cosa:"Bici gravel",  ente:"PayPal",      rata:145,    n:4,  prima:"2026-09-28", cadenza:"mensile",     canale:"paypal",     ecc:{} }
-  ]};
 }
 
 /* ============================================================
