@@ -29,7 +29,7 @@
   html,body{margin:0; background:var(--bg); color:var(--ink);
     font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     -webkit-font-smoothing:antialiased}
-  body{padding:0 var(--gutter) 96px; max-width:520px; margin:0 auto}
+  body{padding:0 var(--gutter) calc(120px + env(safe-area-inset-bottom)); max-width:520px; margin:0 auto}
   button{font:inherit; color:inherit; border:0; background:none; cursor:pointer}
   input,select{font:inherit; color:inherit}
   h1{font-size:19px; font-weight:650; letter-spacing:-.01em; margin:0}
@@ -480,7 +480,7 @@ function renderChart(F){
   }).join("");
 
   /* --- totali mensili per ente --- */
-  const perMese = win.map(()=>({ tot:0, voci:[], canali:[] }));
+  const perMese = win.map(()=>({ tot:0, voci:[], canali:[], rate:[] }));
   F.forEach(({f,r})=>{
     const can = CANALI[f.canale];
     const etichetta = can ? can.breve : "senza canale";
@@ -488,6 +488,7 @@ function renderChart(F){
       const c = periodoDi(x.data) - primo;
       if(c < 0 || c > 11) return;
       perMese[c].tot += f.rata;
+      perMese[c].rate.push({ f, data:x.data });
       const v = perMese[c].voci.find(v=>v.ente === f.ente);
       if(v) v.val += f.rata; else perMese[c].voci.push({ ente:f.ente, val:f.rata });
       const k = perMese[c].canali.find(k=>k.nome === etichetta);
@@ -519,8 +520,10 @@ function renderChart(F){
       <span>${MESI[sw.m]} ${sw.y} <span class="muted">${gg(rs.da)} – ${gg(rs.a)}</span></span>
       <b>${ sel.tot ? euro(sel.tot) : "nessuna rata" }</b>
     </div>
-    <div class="chips">${ sel.voci.sort((a,b)=>b.val-a.val).map(v=>
-      `<span class="chip"><i class="dot" style="background:${coloreEnte(v.ente)}"></i>${esc(v.ente)} ${euroC(v.val)}</span>`
+    <div class="chips">${ sel.rate.sort((a,b)=>a.data-b.data).map(x=>
+      /* una voce per rata, con la data vera: col mese che parte il 23,
+         una rata del 28/01 sta nella colonna Feb e qui si vede perché */
+      `<span class="chip"><i class="dot" style="background:${coloreEnte(x.f.ente)}"></i>${esc(x.f.cosa)} <span class="muted">${gg(x.data)}</span> ${euroC(x.f.rata)}</span>`
     ).join("") }</div>
     ${ sel.tot ? `<div class="split">${ sel.canali.sort((a,b)=>b.val-a.val).map(k=>
         `${esc(k.nome)} <b>${euroC(k.val)}</b>`).join(" · ") }</div>` : "" }`;
