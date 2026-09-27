@@ -60,9 +60,16 @@
   .grow{height:22px; align-items:stretch; position:relative}
   .bar{border-radius:4px; min-width:6px; display:flex; align-items:center; padding:0 6px; overflow:hidden;
        color:#fff; font-size:10.5px; font-weight:600; white-space:nowrap; text-shadow:0 1px 1px rgba(0,0,0,.18)}
-  .bar.cutR{border-top-right-radius:0; border-bottom-right-radius:0}
-  .bar.cutL{border-top-left-radius:0; border-bottom-left-radius:0}
+  .bar.cutR,.band.cutR{border-top-right-radius:0; border-bottom-right-radius:0}
+  .bar.cutL,.band.cutL{border-top-left-radius:0; border-bottom-left-radius:0}
   .bar .chev{margin-left:auto; opacity:.85; font-weight:700; padding-left:4px}
+  /* voce ricorrente: fascia tenue per tutto il periodo attivo, tacche piene
+     nei periodi in cui si paga. Stesse colonne .grid12 delle barre. */
+  .grow .band{grid-row:1; border-radius:4px; opacity:.16}
+  .grow .tk{grid-row:1; align-self:end; height:5px; border-radius:2px}
+  .grow .lbl{grid-row:1; z-index:1; display:flex; align-items:center; min-width:0; overflow:hidden;
+             padding:0 6px 4px; font-size:10.5px; font-weight:600; color:var(--ink2); white-space:nowrap}
+  .grow .lbl .chev{margin-left:auto; padding-left:4px; opacity:.7; font-weight:700}
 
   .axis{position:relative; z-index:1; margin:2px 0 8px}
   .axis span{font-size:10px; color:var(--muted); text-align:center; font-weight:600; letter-spacing:.02em}
@@ -101,6 +108,14 @@
   .item .sub span{font-variant-numeric:tabular-nums}
   .prog{height:3px; background:var(--line); border-radius:2px; margin-top:9px; overflow:hidden}
   .prog i{display:block; height:100%; border-radius:2px}
+  .item .sub .warn{color:#9a5b00; font-weight:600}
+  .item.finito{opacity:.55}
+  #headR{padding-top:16px}
+
+  /* scelta del tipo nel form nuovo */
+  .tipo{display:grid; grid-template-columns:1fr 1fr; gap:4px; background:#e6e6e3; border-radius:11px; padding:3px; margin-bottom:14px}
+  .tipo button{padding:8px; border-radius:9px; font-size:13.5px; font-weight:600; color:var(--ink2)}
+  .tipo button.on{background:var(--card); color:var(--ink); box-shadow:var(--shadow)}
 
   .empty{text-align:center; color:var(--muted); padding:34px 20px; font-size:14px}
 
@@ -162,6 +177,9 @@
   .vers .r .d small{display:block; font-size:11.5px; color:var(--muted)}
   .sec{font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:650; margin:18px 4px 4px}
   .ok{font-size:12.5px; color:var(--ink2); margin:8px 2px; min-height:1em}
+  .r input{min-width:0; flex:1; padding:7px 8px; border:1px solid var(--line); border-radius:8px;
+           background:var(--card); font-size:13.5px; outline:none}
+  .r input:focus{border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -175,8 +193,11 @@
 
 <div class="card chart" id="chart"></div>
 
-<div class="listhead"><h2>Finanziamenti</h2><span class="muted num" id="count"></span></div>
+<div class="listhead" id="headQ"><h2>Finanziamenti</h2><span class="muted num" id="count"></span></div>
 <div id="list"></div>
+
+<div class="listhead" id="headR" style="display:none"><h2>Ricorrenti</h2><span class="muted num" id="annoR"></span></div>
+<div id="listR"></div>
 
 <footer id="foot"></footer>
 
@@ -194,7 +215,14 @@
 const KEY = "rate_stato";
 const PALETTE = ["--e0","--e1","--e2","--e3","--e4","--e5","--e6","--e7"];
 const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
-const CAD  = { mensile:1, bimestrale:2, trimestrale:3, settimanale:0 };
+const CAD  = { mensile:1, bimestrale:2, trimestrale:3, semestrale:6, annuale:12, settimanale:0 };
+
+/* Voci RICORRENTI (affitto, abbonamenti): stesso record dei finanziamenti con
+   ricorrente:true e senza 'n'. Campi facoltativi, assenti se non usati:
+     fine        "AAAA-MM-GG"  ultimo giorno attivo (disdetta); vuoto = senza fine
+     preavviso   giorni di preavviso per disdire prima del rinnovo
+     variazioni  [{da:"AAAA-MM-GG", importo}]  nuovo importo da quella data
+   I record vecchi non hanno nessuno di questi campi e restano identici. */
 
 /* Canale di pagamento. 'auto' = il denaro esce da solo, non devi ricordartene.
    I finanziamenti inseriti prima di questo campo hanno canale vuoto: restano
@@ -305,29 +333,83 @@ function addMesi(y, mIdx, day, k){
   return t;
 }
 
-/* Elenco completo delle rate di un finanziamento, con data e stato.
-   'rinviata' sposta la rata di un periodo; 'saltata' la esclude dai totali. */
-function rate(f){
+const giorno = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y, m-1, d); };
+
+/* Pagamento numero i di una voce, con data e stato.
+   'rinviata' sposta il pagamento di un periodo; 'saltata' lo esclude dai totali. */
+function occ(f, i){
   const [y,m,d] = f.prima.split("-").map(Number);
-  const passo = CAD[f.cadenza];
-  const out = [];
-  for(let i=0;i<f.n;i++){
-    const ecc = f.ecc ? f.ecc[i] : null;
-    let dt;
-    if(passo === 0){                                    // settimanale
-      dt = new Date(y, m-1, d);
-      dt.setDate(dt.getDate() + 7*(i + (ecc==="rinviata"?1:0)));
-      dt.setHours(0,0,0,0);
-    } else {
-      dt = addMesi(y, m-1, d, passo*i + (ecc==="rinviata" ? passo : 0));
-    }
-    const st = ecc === "saltata" ? "saltata" : (dt < oggi ? "pagata" : "attesa");
-    out.push({ i, data:dt, stato:st, rinviata: ecc==="rinviata" });
+  const passo = CAD[f.cadenza] ?? 1;
+  const ecc = f.ecc ? f.ecc[i] : null;
+  let dt;
+  if(passo === 0){                                      // settimanale
+    dt = new Date(y, m-1, d);
+    dt.setDate(dt.getDate() + 7*(i + (ecc==="rinviata"?1:0)));
+    dt.setHours(0,0,0,0);
+  } else {
+    dt = addMesi(y, m-1, d, passo*i + (ecc==="rinviata" ? passo : 0));
   }
+  const st = ecc === "saltata" ? "saltata" : (dt < oggi ? "pagata" : "attesa");
+  return { i, data:dt, stato:st, rinviata: ecc==="rinviata" };
+}
+
+/* Elenco completo delle rate di un finanziamento. */
+function rate(f){
+  const out = [];
+  for(let i=0;i<f.n;i++) out.push(occ(f, i));
   return out;
 }
 
+/* Importo in vigore a una data: l'ultima variazione già partita, altrimenti
+   quello di base. Senza variazioni (tutti i finanziamenti) è sempre f.rata. */
+function importo(f, data){
+  let v = f.rata;
+  if(f.variazioni) f.variazioni.slice().sort((a,b)=> a.da < b.da ? -1 : 1)
+    .forEach(x=>{ if(giorno(x.da) <= data) v = x.importo; });
+  return v;
+}
+
+/* Pagamenti di una voce ricorrente che cadono nei periodi da pA a pB compresi,
+   fermandosi alla data di fine se c'è. La serie non ha fine: si scorre dal
+   primo pagamento finché si esce dalla finestra. */
+function occRic(f, pA, pB){
+  const out = [], fine = f.fine ? giorno(f.fine) : null;
+  for(let i=0; i<20000; i++){
+    const o = occ(f, i), p = periodoDi(o.data);
+    if(p > pB || (fine && o.data > fine)){ if(o.rinviata) continue; break; }
+    if(p >= pA) out.push(o);
+  }
+  return out;
+}
+/* i prossimi n pagamenti ancora da fare, anche oltre i 12 mesi */
+function prossimi(f, n){
+  const out = [], fine = f.fine ? giorno(f.fine) : null;
+  for(let i=0; i<20000 && out.length<n; i++){
+    const o = occ(f, i);
+    if(fine && o.data > fine){ if(o.rinviata) continue; break; }
+    if(o.stato === "attesa") out.push(o);
+  }
+  return out;
+}
+/* Entro quando disdire per non pagare il prossimo rinnovo. Solo se c'è un
+   preavviso e la voce non è già disdetta (cioè non ha una fine). */
+function disdiciEntro(f){
+  if(!(f.preavviso > 0) || f.fine) return null;
+  const meno = d => { const t = new Date(d); t.setDate(t.getDate() - f.preavviso); return t; };
+  const o = prossimi(f, 400).find(x => meno(x.data) >= oggi);
+  return o ? { entro:meno(o.data), rinnovo:o.data } : null;
+}
+
 function riepilogo(f){
+  if(f.ricorrente){
+    /* Ricorrente: niente totale, versato, residuo. Conta ciò che cade nei
+       12 periodi della finestra, a partire da quello corrente. */
+    const win  = occRic(f, periodoOggi, periodoOggi + 11);
+    const vive = win.filter(x=>x.stato!=="saltata");
+    return { ric:true, rate:win, vive, pagate:[], attesa:[], ultima:null,
+             totale:0, versato:0, residuo:0,
+             anno: vive.reduce((s,x)=> s + importo(f, x.data), 0) };
+  }
   const r = rate(f);
   const vive    = r.filter(x=>x.stato!=="saltata");
   const pagate  = r.filter(x=>x.stato==="pagata");
@@ -385,7 +467,6 @@ function render(){
   renderStats(F);
   renderChart(F);
   renderList(F);
-  document.getElementById("count").textContent = F.length ? F.length : "";
   renderFoot();
 }
 
@@ -414,13 +495,17 @@ function renderFoot(){
 /* --- 1. tre numeri --- */
 function renderStats(F){
   const mese = periodoOggi;
-  let meseTot = 0, meseResto = 0, residuo = 0, totale = 0, versato = 0;
+  let meseTot = 0, meseResto = 0, meseFissi = 0, residuo = 0, totale = 0, versato = 0;
   let fine = null, fineNome = "";
 
   F.forEach(({f,r})=>{
     residuo += r.residuo; totale += r.totale; versato += r.versato;
     r.vive.forEach(x=>{
-      if(periodoDi(x.data) === mese){ meseTot += f.rata; if(x.stato==="attesa") meseResto += f.rata; }
+      if(periodoDi(x.data) !== mese) return;
+      const v = importo(f, x.data);
+      meseTot += v;
+      if(f.ricorrente) meseFissi += v;
+      if(x.stato==="attesa") meseResto += v;
     });
     const ultimaAttesa = r.attesa.length ? r.attesa[r.attesa.length-1].data : null;
     if(ultimaAttesa && (!fine || ultimaAttesa > fine)){ fine = ultimaAttesa; fineNome = f.cosa; }
@@ -434,7 +519,8 @@ function renderStats(F){
       <div class="s">${gg(rp.da)} – ${gg(rp.a)}<br>${ meseTot === 0 ? "nessuna scadenza"
           : meseResto === 0 ? "tutto versato"
           : meseResto === meseTot ? "ancora da versare"
-          : "ancora " + euroC(meseResto) }</div>
+          : "ancora " + euroC(meseResto) }${
+          meseFissi ? "<br>rate " + euroC(meseTot - meseFissi) + " · fissi " + euroC(meseFissi) : "" }</div>
     </div>
     <div class="stat">
       <div class="k">Residuo</div>
@@ -456,21 +542,41 @@ function renderChart(F){
   const win = finestra();
   const primo = win[0].idx, ultimo = win[11].idx;
 
-  /* --- barre Gantt, ordinate per data di fine --- */
+  /* --- barre Gantt: prima i finanziamenti per data di fine, poi le ricorrenti --- */
   const barre = F.map(({f,r})=>{
-    const vive = r.vive;
-    if(!vive.length) return null;
-    const a = periodoDi(vive[0].data), b = periodoDi(vive[vive.length-1].data);
+    let a, b;
+    if(f.ricorrente){
+      /* attiva dal primo pagamento fino alla fine, o per sempre */
+      a = periodoDi(giorno(f.prima));
+      b = f.fine ? periodoDi(giorno(f.fine)) : Infinity;
+    } else {
+      const vive = r.vive;
+      if(!vive.length) return null;
+      a = periodoDi(vive[0].data); b = periodoDi(vive[vive.length-1].data);
+    }
     if(b < primo || a > ultimo) return null;                 // fuori finestra
     const start = Math.max(a, primo) - primo;
     const end   = Math.min(b, ultimo) - primo;
-    return { f, r, start, end, tagliaL:a < primo, tagliaR:b > ultimo, fine:b };
-  }).filter(Boolean).sort((x,y)=> x.fine - y.fine || x.start - y.start);
+    return { f, r, start, end, tagliaL:a < primo, tagliaR:b > ultimo, fine:b, ric:!!f.ricorrente };
+  }).filter(Boolean).sort((x,y)=> x.ric - y.ric || x.fine - y.fine || x.start - y.start);
 
   const gantt = barre.map(b=>{
     const largo = b.end - b.start + 1;
-    const cls = "bar" + (b.tagliaR?" cutR":"") + (b.tagliaL?" cutL":"");
+    const taglio = (b.tagliaR?" cutR":"") + (b.tagliaL?" cutL":"");
+    const cls = "bar" + taglio;
     const testo = largo >= 3 ? b.f.cosa : "";
+    if(b.ric){
+      const col = coloreEnte(b.f.ente), span = `grid-column:${b.start+1}/${b.end+2}`;
+      const tacche = [...new Set(b.r.vive.map(x=>periodoDi(x.data) - primo))]
+        .filter(c=> c >= b.start && c <= b.end)
+        .map(c=>`<i class="tk" style="grid-column:${c+1}/${c+2}; background:${col}"></i>`).join("");
+      return `<div class="grid12 grow" title="${esc(b.f.cosa)} · ${esc(b.f.ente)} — ${b.f.cadenza}, ${
+          b.f.fine ? "fino al " + dataIt(giorno(b.f.fine)) : "senza scadenza" }">
+        <div class="band${taglio}" style="${span}; background:${col}"></div>${tacche}
+        <div class="lbl" style="${span}"><span style="overflow:hidden;text-overflow:ellipsis">${esc(testo)}</span>
+          ${ b.tagliaR ? '<span class="chev">›</span>' : "" }</div>
+      </div>`;
+    }
     return `<div class="grid12 grow">
       <div class="${cls}" style="grid-column:${b.start+1}/${b.end+2}; background:${coloreEnte(b.f.ente)}"
            title="${esc(b.f.cosa)} · ${esc(b.f.ente)} — fino al ${dataIt(b.r.vive[b.r.vive.length-1].data)}">
@@ -480,19 +586,21 @@ function renderChart(F){
   }).join("");
 
   /* --- totali mensili per ente --- */
-  const perMese = win.map(()=>({ tot:0, voci:[], canali:[], rate:[] }));
+  const perMese = win.map(()=>({ tot:0, fissi:0, voci:[], canali:[], rate:[] }));
   F.forEach(({f,r})=>{
     const can = CANALI[f.canale];
     const etichetta = can ? can.breve : "senza canale";
     r.vive.forEach(x=>{
       const c = periodoDi(x.data) - primo;
       if(c < 0 || c > 11) return;
-      perMese[c].tot += f.rata;
-      perMese[c].rate.push({ f, data:x.data });
+      const imp = importo(f, x.data);
+      perMese[c].tot += imp;
+      if(f.ricorrente) perMese[c].fissi += imp;
+      perMese[c].rate.push({ f, data:x.data, imp });
       const v = perMese[c].voci.find(v=>v.ente === f.ente);
-      if(v) v.val += f.rata; else perMese[c].voci.push({ ente:f.ente, val:f.rata });
+      if(v) v.val += imp; else perMese[c].voci.push({ ente:f.ente, val:imp });
       const k = perMese[c].canali.find(k=>k.nome === etichetta);
-      if(k) k.val += f.rata; else perMese[c].canali.push({ nome:etichetta, val:f.rata });
+      if(k) k.val += imp; else perMese[c].canali.push({ nome:etichetta, val:imp });
     });
   });
   const max = Math.max(1, ...perMese.map(m=>m.tot));
@@ -523,10 +631,11 @@ function renderChart(F){
     <div class="chips">${ sel.rate.sort((a,b)=>a.data-b.data).map(x=>
       /* una voce per rata, con la data vera: col mese che parte il 23,
          una rata del 28/01 sta nella colonna Feb e qui si vede perché */
-      `<span class="chip"><i class="dot" style="background:${coloreEnte(x.f.ente)}"></i>${esc(x.f.cosa)} <span class="muted">${gg(x.data)}</span> ${euroC(x.f.rata)}</span>`
+      `<span class="chip"><i class="dot" style="background:${coloreEnte(x.f.ente)}"></i>${esc(x.f.cosa)} <span class="muted">${gg(x.data)}</span> ${euroC(x.imp)}</span>`
     ).join("") }</div>
     ${ sel.tot ? `<div class="split">${ sel.canali.sort((a,b)=>b.val-a.val).map(k=>
-        `${esc(k.nome)} <b>${euroC(k.val)}</b>`).join(" · ") }</div>` : "" }`;
+        `${esc(k.nome)} <b>${euroC(k.val)}</b>`).join(" · ") }${
+        sel.fissi ? `<br>rate <b>${euroC(sel.tot - sel.fissi)}</b> · fissi <b>${euroC(sel.fissi)}</b>` : "" }</div>` : "" }`;
 
   box.innerHTML = `
     <div class="bandrow">
@@ -552,9 +661,14 @@ function renderChart(F){
 }
 
 /* --- 4. lista --- */
-function renderList(F){
+function renderList(tutte){
   const el = document.getElementById("list");
-  if(!F.length){
+  const F = tutte.filter(x=>!x.f.ricorrente);
+  renderRicorrenti(tutte.filter(x=>x.f.ricorrente));
+  document.getElementById("count").textContent = F.length ? F.length : "";
+  /* la testata Finanziamenti sparisce solo se ci sono ricorrenti e nessuna rata */
+  document.getElementById("headQ").style.display = F.length || !tutte.length ? "" : "none";
+  if(!tutte.length){
     el.innerHTML = `<div class="empty">Nessun finanziamento.<br>Tocca <b>+ Aggiungi</b> per iniziare,
       oppure <button id="impVuoto" style="text-decoration:underline; color:var(--accent)">importa una copia</button>.</div>`;
     document.getElementById("impVuoto").onclick = ()=>{ apriMenu(); document.getElementById("file").click(); };
@@ -581,6 +695,37 @@ function renderList(F){
   el.querySelectorAll(".item").forEach(b => b.onclick = ()=>apriDettaglio(b.dataset.id));
 }
 
+/* --- 5. voci ricorrenti: niente avanzamento, conta il prossimo pagamento --- */
+function renderRicorrenti(R){
+  const el = document.getElementById("listR");
+  document.getElementById("headR").style.display = R.length ? "" : "none";
+  document.getElementById("annoR").textContent = R.length
+    ? euroC(R.reduce((s,x)=>s + x.r.anno, 0)) + " in 12 mesi" : "";
+  const finita = f => f.fine && giorno(f.fine) < oggi;
+  el.innerHTML = R.slice().sort((a,b)=> finita(a.f) - finita(b.f)).map(({f})=>{
+    const col = coloreEnte(f.ente), p = prossimi(f, 1)[0], d = disdiciEntro(f);
+    const destra = finita(f) ? "terminato il " + dataIt(giorno(f.fine))
+      : d ? `<span class="${ (d.entro - oggi) / 864e5 <= 30 ? "warn" : "" }">disdici entro ${dataIt(d.entro)}</span>`
+      : f.fine ? "fino al " + dataIt(giorno(f.fine))
+      : p ? "prossimo " + dataIt(p.data)
+      : "—";
+    return `<button class="item${ finita(f) ? " finito" : "" }" data-id="${f.id}">
+      <div class="top">
+        <i class="dot" style="background:${col}"></i>
+        <span class="name">${esc(f.cosa)}</span>
+        <span class="rata">${euro(importo(f, p ? p.data : oggi))}</span>
+      </div>
+      <div class="sub">
+        <span>${ [ esc(f.ente),
+                   f.cadenza !== "mensile" ? f.cadenza : null,
+                   CANALI[f.canale] ? CANALI[f.canale].breve : null ].filter(Boolean).join(" · ") }</span>
+        <span>${destra}</span>
+      </div>
+    </button>`;
+  }).join("");
+  el.querySelectorAll(".item").forEach(b => b.onclick = ()=>apriDettaglio(b.dataset.id));
+}
+
 const esc = s => String(s??"").replace(/[&<>"]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
 /* ============================================================
@@ -594,53 +739,103 @@ function apri(html){
 function chiudi(){ scrim.classList.remove("on"); sheet.classList.remove("on"); }
 scrim.onclick = chiudi;
 
-/* --- form aggiungi / modifica --- */
-function apriForm(id){
+/* --- form aggiungi / modifica ---
+   Per una voce nuova si sceglie il tipo: a rate (con un numero di rate) o
+   ricorrente (senza fine). Una voce esistente non cambia tipo. */
+function apriForm(id, tipo, bozza){
   const f = id ? stato.items.find(x=>x.id===id) : null;
+  const ric = f ? !!f.ricorrente : tipo === "ric";
+  const b = bozza || {};
+  const cosaV = f ? f.cosa : (b.cosa || ""), enteV = f ? f.ente : (b.ente || "");
+  const selCad = `<select id="i-cad">${ Object.keys(CAD).map(c=>
+          `<option value="${c}"${ (f?f.cadenza:"mensile")===c ? " selected":"" }>${c}</option>`).join("") }</select>`;
+  const selCan = `<select id="i-can"><option value="">— non indicato</option>${ Object.entries(CANALI)
+          .filter(([k,v])=>!v.storico || (f && f.canale) === k)
+          .map(([k,v])=>`<option value="${k}"${ (f&&f.canale)===k ? " selected":"" }>${v.nome}</option>`).join("") }</select>`;
+  const importoV = f ? String(f.rata).replace(".",",") : "";
+
   apri(`
-    <div class="bar-h"><h2>${ f ? "Modifica" : "Nuovo finanziamento" }</h2>
+    <div class="bar-h"><h2>${ f ? "Modifica" : ric ? "Nuova voce ricorrente" : "Nuovo finanziamento" }</h2>
       <button class="x" id="cx">chiudi</button></div>
+    ${ f ? "" : `<div class="tipo">
+      <button id="t-rate" class="${ric?"":"on"}">A rate</button>
+      <button id="t-ric" class="${ric?"on":""}">Ricorrente</button></div>` }
     <div class="err" id="err"></div>
     <div class="field"><label for="i-cosa">Cosa</label>
-      <input id="i-cosa" placeholder="Divano" value="${esc(f?f.cosa:"")}"></div>
+      <input id="i-cosa" placeholder="${ ric ? "Affitto" : "Divano" }" value="${esc(cosaV)}"></div>
     <div class="field"><label for="i-ente">Ente</label>
-      <input id="i-ente" placeholder="Klarna" value="${esc(f?f.ente:"")}" list="enti">
+      <input id="i-ente" placeholder="${ ric ? "Proprietario" : "Klarna" }" value="${esc(enteV)}" list="enti">
       <datalist id="enti">${ [...new Set(stato.items.map(x=>x.ente))].map(e=>`<option value="${esc(e)}">`).join("") }</datalist></div>
+    ${ ric ? `
+    <div class="row2">
+      <div class="field"><label for="i-rata">${ f && f.variazioni && f.variazioni.length ? "Importo iniziale" : "Importo" }</label>
+        <input id="i-rata" inputmode="decimal" placeholder="650,00" value="${importoV}"></div>
+      <div class="field"><label for="i-cad">Cadenza</label>${selCad}</div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="i-data">Primo pagamento</label>
+        <input id="i-data" type="date" value="${ f ? f.prima : "" }"></div>
+      <div class="field"><label for="i-can">Canale</label>${selCan}</div>
+    </div>
+    <div class="row2">
+      <div class="field"><label for="i-pre">Preavviso disdetta</label>
+        <input id="i-pre" inputmode="numeric" placeholder="giorni" value="${ f && f.preavviso ? f.preavviso : "" }"></div>
+      <div class="field"><label for="i-fine">Fino al</label>
+        <input id="i-fine" type="date" value="${ f && f.fine ? f.fine : "" }"></div>
+    </div>
+    <p class="hint">Preavviso e “fino al” sono facoltativi: vuoto = nessun preavviso, nessuna fine.
+      Per un aumento apri la voce e usa <b>cambia importo</b>.</p>
+    ` : `
     <div class="row2">
       <div class="field"><label for="i-rata">Importo rata</label>
-        <input id="i-rata" inputmode="decimal" placeholder="89,00" value="${ f ? String(f.rata).replace(".",",") : "" }"></div>
+        <input id="i-rata" inputmode="decimal" placeholder="89,00" value="${importoV}"></div>
       <div class="field"><label for="i-n">Numero rate</label>
         <input id="i-n" inputmode="numeric" placeholder="3" value="${ f ? f.n : "" }"></div>
     </div>
     <div class="field"><label for="i-data">Prima scadenza</label>
       <input id="i-data" type="date" value="${ f ? f.prima : "" }"></div>
     <div class="row2">
-      <div class="field"><label for="i-cad">Cadenza</label>
-        <select id="i-cad">${ Object.keys(CAD).map(c=>
-          `<option value="${c}"${ (f?f.cadenza:"mensile")===c ? " selected":"" }>${c}</option>`).join("") }</select></div>
-      <div class="field"><label for="i-can">Canale</label>
-        <select id="i-can"><option value="">— non indicato</option>${ Object.entries(CANALI)
-          .filter(([k,v])=>!v.storico || (f && f.canale) === k)
-          .map(([k,v])=>`<option value="${k}"${ (f&&f.canale)===k ? " selected":"" }>${v.nome}</option>`).join("") }</select></div>
+      <div class="field"><label for="i-cad">Cadenza</label>${selCad}</div>
+      <div class="field"><label for="i-can">Canale</label>${selCan}</div>
     </div>
     <p class="hint">Date, totale, versato e residuo sono calcolati: non serve inserirli.</p>
+    ` }
     <button class="primary" id="ok">${ f ? "Salva" : "Aggiungi" }</button>
-    ${ f ? `<button class="danger" id="del">Elimina finanziamento</button>` : "" }
+    ${ f ? `<button class="danger" id="del">${ ric ? "Elimina voce" : "Elimina finanziamento" }</button>` : "" }
   `);
 
   document.getElementById("cx").onclick = chiudi;
+  /* cambiare tipo ridisegna il form tenendo quanto già scritto in Cosa ed Ente */
+  const tr = document.getElementById("t-rate"), tc = document.getElementById("t-ric");
+  const passa = t => ()=>{ if((t==="ric") !== ric) apriForm(null, t, { cosa:val("i-cosa"), ente:val("i-ente") }); };
+  if(tr){ tr.onclick = passa("rate"); tc.onclick = passa("ric"); }
+
   document.getElementById("ok").onclick = ()=>{
     const cosa = val("i-cosa"), ente = val("i-ente") || "—";
     const rata = parseFloat(val("i-rata").replace(/\./g,"").replace(",","."));
-    const n = parseInt(val("i-n"), 10);
     const prima = val("i-data"), cadenza = val("i-cad"), canale = val("i-can");
     const e = document.getElementById("err");
     if(!cosa)                    return errore(e, "Manca il nome.");
-    if(!(rata > 0))              return errore(e, "Importo rata non valido.");
-    if(!(n >= 1 && n <= 600))    return errore(e, "Numero rate non valido.");
-    if(!prima)                   return errore(e, "Manca la prima scadenza.");
-    if(f){ Object.assign(f, { cosa, ente, rata, n, prima, cadenza, canale }); }
-    else { stato.items.push({ id:uid(), cosa, ente, rata, n, prima, cadenza, canale, ecc:{} }); }
+    if(ric){
+      const fine = val("i-fine"), preS = val("i-pre"), pre = parseInt(preS, 10);
+      if(!(rata > 0))              return errore(e, "Importo non valido.");
+      if(!prima)                   return errore(e, "Manca la data del primo pagamento.");
+      if(preS && !(pre >= 0 && pre <= 730)) return errore(e, "Preavviso non valido: scrivi i giorni.");
+      if(fine && fine < prima)     return errore(e, "“Fino al” viene prima del primo pagamento.");
+      const v = f || { id:uid(), ricorrente:true, ecc:{} };
+      Object.assign(v, { cosa, ente, rata, prima, cadenza, canale });
+      /* campi facoltativi: se vuoti si tolgono, non si salvano vuoti */
+      if(fine) v.fine = fine; else delete v.fine;
+      if(pre > 0) v.preavviso = pre; else delete v.preavviso;
+      if(!f) stato.items.push(v);
+    } else {
+      const n = parseInt(val("i-n"), 10);
+      if(!(rata > 0))              return errore(e, "Importo rata non valido.");
+      if(!(n >= 1 && n <= 600))    return errore(e, "Numero rate non valido.");
+      if(!prima)                   return errore(e, "Manca la prima scadenza.");
+      if(f){ Object.assign(f, { cosa, ente, rata, n, prima, cadenza, canale }); }
+      else { stato.items.push({ id:uid(), cosa, ente, rata, n, prima, cadenza, canale, ecc:{} }); }
+    }
     coloreEnte(ente); salva(); chiudi(); render();
   };
   const del = document.getElementById("del");
@@ -650,7 +845,7 @@ function apriForm(id){
     stato.items = stato.items.filter(x=>x.id !== f.id);
     salva(); chiudi(); render();
   };
-  setTimeout(()=>document.getElementById("i-cosa").focus(), 260);
+  if(!bozza) setTimeout(()=>document.getElementById("i-cosa").focus(), 260);
 }
 const val = id => document.getElementById(id).value.trim();
 const uid = () => Math.random().toString(36).slice(2,9);
@@ -660,6 +855,7 @@ function errore(el, msg){ el.textContent = msg; el.style.display = "block"; }
 function apriDettaglio(id){
   const f = stato.items.find(x=>x.id===id);
   if(!f) return;
+  if(f.ricorrente) return apriDettaglioRic(f);
   const r = riepilogo(f), col = coloreEnte(f.ente);
 
   apri(`
@@ -699,8 +895,87 @@ function apriDettaglio(id){
   });
 }
 
+/* --- dettaglio di una voce ricorrente: i pagamenti dei prossimi 12 mesi
+   e le variazioni di importo (ISTAT, rincari) --- */
+function apriDettaglioRic(f){
+  const id = f.id, r = riepilogo(f), col = coloreEnte(f.ente);
+  const p = prossimi(f, 1)[0], d = disdiciEntro(f);
+  const fine = f.fine ? giorno(f.fine) : null;
+  const V = (f.variazioni || []).slice().sort((a,b)=> a.da < b.da ? -1 : 1);
+
+  apri(`
+    <div class="bar-h">
+      <h2><i class="dot" style="background:${col}; display:inline-block; margin-right:6px"></i>${esc(f.cosa)}</h2>
+      <button class="x" id="ed">modifica</button><button class="x" id="cx">chiudi</button>
+    </div>
+    <div class="kpis">
+      <div><div class="k">Importo</div><div class="v">${ (n => Number.isInteger(n) ? euroC(n) : euro(n))(importo(f, p ? p.data : oggi)) }</div></div>
+      <div><div class="k">In 12 mesi</div><div class="v">${euroC(r.anno)}</div></div>
+      <div><div class="k">Prossimo</div><div class="v">${ p ? gg(p.data) : "—" }</div></div>
+    </div>
+    <div class="stateline" style="display:block">${esc(f.ente)} · ${f.cadenza} · ${
+      CANALI[f.canale] ? CANALI[f.canale].nome + (CANALI[f.canale].auto ? " (automatico)" : "") : "canale non indicato"
+    } · ${ fine ? (fine < oggi ? "terminato il " : "fino al ") + dataIt(fine) : "senza scadenza" }${
+      d ? `<br><b style="color:#9a5b00">Disdici entro il ${dataIt(d.entro)}</b> per non pagare il rinnovo del ${dataIt(d.rinnovo)}.` : "" }</div>
+    ${ r.rate.length ? `<div class="rlist">${ r.rate.map(x=>`
+      <div class="r ${ x.stato==="pagata"?"paid": x.stato==="saltata"?"skip":"" }">
+        <span class="n">${ MESI[periodoDi(x.data) % 12] }</span>
+        <span class="d">${dataIt(x.data)}${ x.rinviata ? " ↷" : "" }</span>
+        <span class="a">${ x.stato==="saltata" ? "—" : euro(importo(f, x.data)) }</span>
+        <span class="tags">
+          <button class="tag${ x.stato==="saltata" ? " on":"" }" data-i="${x.i}" data-t="saltata">salta</button>
+          <button class="tag${ x.rinviata ? " on":"" }" data-i="${x.i}" data-t="rinviata">rinvia</button>
+        </span>
+      </div>`).join("") }</div>
+    <p class="hint" style="margin-top:10px">I pagamenti dei prossimi 12 mesi, per periodo. Quelli passati risultano fatti da soli.
+      <b>salta</b> lo toglie dai conti, <b>rinvia</b> lo sposta di un periodo.</p>`
+    : `<p class="hint">Nessun pagamento nei prossimi 12 mesi.</p>` }
+
+    <div class="sec">Cambia importo</div>
+    <div class="rlist vers">
+      ${ V.map((v,j)=>`<div class="r"><span class="d">dal ${dataIt(giorno(v.da))}</span>
+          <span class="a">${euro(v.importo)}</span>
+          <span class="tags"><button class="tag" data-vx="${j}">togli</button></span></div>`).join("") }
+      <div class="r">
+        <input id="v-da" type="date" value="${ p ? oggiLocaleDi(p.data) : "" }" aria-label="dal">
+        <input id="v-imp" inputmode="decimal" placeholder="nuovo importo" aria-label="nuovo importo">
+        <span class="tags"><button class="tag on" id="v-ok">applica</button></span>
+      </div>
+    </div>
+    <div class="err" id="err"></div>
+    <p class="hint">Aumento ISTAT, rincaro dell'abbonamento: dalla data scelta vale il nuovo importo,
+      i pagamenti prima restano come erano.</p>
+  `);
+
+  document.getElementById("cx").onclick = chiudi;
+  document.getElementById("ed").onclick = ()=>apriForm(id);
+  sheet.querySelectorAll(".tag[data-t]").forEach(b => b.onclick = ()=>{
+    const i = b.dataset.i, t = b.dataset.t;
+    f.ecc = f.ecc || {};
+    if(f.ecc[i] === t) delete f.ecc[i]; else f.ecc[i] = t;
+    salva(); render(); apriDettaglioRic(f);
+  });
+  sheet.querySelectorAll("[data-vx]").forEach(b => b.onclick = ()=>{
+    const v = V[+b.dataset.vx];
+    f.variazioni = f.variazioni.filter(x=>x !== v);
+    if(!f.variazioni.length) delete f.variazioni;
+    salva(); render(); apriDettaglioRic(f);
+  });
+  document.getElementById("v-ok").onclick = ()=>{
+    const da = val("v-da"), imp = parseFloat(val("v-imp").replace(/\./g,"").replace(",","."));
+    const e = document.getElementById("err");
+    if(!da)            return errore(e, "Scegli da quale data.");
+    if(!(imp > 0))     return errore(e, "Nuovo importo non valido.");
+    if(da <= f.prima)  return errore(e, "Per cambiare l'importo dall'inizio usa modifica.");
+    f.variazioni = (f.variazioni || []).filter(x=>x.da !== da);   // stessa data: sostituisce
+    f.variazioni.push({ da, importo:imp });
+    salva(); render(); apriDettaglioRic(f);
+  };
+}
+
 /* --- gestione: copie, versioni precedenti, svuota --- */
-const oggiLocale = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); };
+const oggiLocaleDi = d => d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+const oggiLocale = () => oggiLocaleDi(new Date());
 const quandoIt = iso => { const d = new Date(iso); return dataIt(d) + " " + String(d.getHours()).padStart(2,"0") + ":" + String(d.getMinutes()).padStart(2,"0"); };
 
 /* Salva una copia fuori dal browser. Su telefono e tablet apre il menu
@@ -739,8 +1014,10 @@ function copiaFatta(){
 /* un file importato deve avere l'aspetto giusto, voce per voce */
 function datiImportabili(d){
   if(!valido(d)) return null;
-  const buoni = d.items.every(f => f && f.id && typeof f.prima === "string" && /^\d{4}-\d{2}-\d{2}$/.test(f.prima)
-    && typeof f.rata === "number" && f.rata > 0 && Number.isInteger(f.n) && f.n >= 1 && (f.cadenza in CAD));
+  const data = s => typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const buoni = d.items.every(f => f && f.id && data(f.prima)
+    && typeof f.rata === "number" && f.rata > 0 && (f.cadenza in CAD)
+    && (f.ricorrente ? (!f.fine || data(f.fine)) : (Number.isInteger(f.n) && f.n >= 1)));
   return buoni ? { v:1, items:d.items, colori:d.colori || {} } : null;
 }
 
@@ -750,7 +1027,7 @@ function apriMenu(msg){
   const L = istantanee(), ill = leggi(K_ILL);
   apri(`
     <div class="bar-h"><h2>Gestione</h2><button class="x" id="cx">chiudi</button></div>
-    <p class="hint">I finanziamenti stanno solo in questo browser. <b>Salva copia</b> li mette al sicuro
+    <p class="hint">Finanziamenti e voci ricorrenti stanno solo in questo browser. <b>Salva copia</b> li mette al sicuro
       fuori dal telefono: dal menu Condividi scegli OneDrive o Drive.
       Ultima copia: <b id="ult">${statoBackup().quando}</b>.</p>
     <button class="primary" id="exp">Salva copia</button>
@@ -761,7 +1038,7 @@ function apriMenu(msg){
     ${ L.length ? `<div class="sec">Versioni precedenti</div>
       <div class="rlist vers">${ L.map((x,i)=>{
         let n = "?"; try{ n = JSON.parse(x.dati).items.length; }catch(e){}
-        return `<div class="r"><span class="d">${quandoIt(x.t)}<small>${esc(x.motivo)} · ${n} finanziament${n===1?"o":"i"}</small></span>
+        return `<div class="r"><span class="d">${quandoIt(x.t)}<small>${esc(x.motivo)} · ${n} voc${n===1?"e":"i"}</small></span>
           <span class="tags"><button class="tag" data-v="${i}">ripristina</button></span></div>`; }).join("") }</div>
       <p class="hint">Ripristinare non perde nulla: la versione attuale finisce a sua volta qui.</p>` : "" }
 
@@ -784,7 +1061,7 @@ function apriMenu(msg){
       if(!d) return scrivimsg("Questo file non è una copia dello Scadenzario: nulla è stato cambiato.");
       const conservata = istantanea("prima di importare");
       stato = d; salva(); render();
-      apriMenu("Importati " + d.items.length + " finanziamenti." + (conservata ? " La situazione di prima è tra le versioni precedenti." : ""));
+      apriMenu("Importate " + d.items.length + " voci." + (conservata ? " La situazione di prima è tra le versioni precedenti." : ""));
     };
     fr.readAsText(file);
   };
@@ -799,7 +1076,7 @@ function apriMenu(msg){
   const bi = document.getElementById("ill");
   if(bi) bi.onclick = ()=>scarica(ill, "scadenzario-illeggibile-" + oggiLocale() + ".json");
   document.getElementById("clr").onclick = ()=>{
-    if(!confirm("Cancellare tutti i finanziamenti? Potrai recuperarli da Versioni precedenti.")) return;
+    if(!confirm("Cancellare tutte le voci? Potrai recuperarli da Versioni precedenti.")) return;
     istantanea("prima di svuotare");
     stato = { v:1, items:[], colori:{} };
     salva(); render(); apriMenu("Tutto svuotato. La situazione di prima è tra le versioni precedenti.");
